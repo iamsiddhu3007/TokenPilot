@@ -1,5 +1,6 @@
 node_modules/
 .env
+.mcp.json
 .fallback-store.json
 web/node_modules/
 web/dist/
@@ -11,3 +12,4 @@ input/jira/*
 !input/codebase/.gitkeep
 !input/jira/.gitkeep
 !input/README.md
+.rocketride/
