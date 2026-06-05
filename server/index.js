@@ -11,6 +11,7 @@ import {
 import {
   enrichAll, optimalOrder, estimateTicket, routeTicket, rocketrideStatus,
 } from './rocketride.js';
+import { initRocketride } from './rocketrideClient.js';
 import { callModel, gatewayStatus, TIER_PRICE_PER_1K } from './gateway.js';
 import {
   writeMemory, searchMemory, reconcile, xtraceStatus, _allFacts, seedTeamFacts,
@@ -316,6 +317,12 @@ app.listen(PORT, async () => {
     console.log(`[ingest] loaded ${tickets.length} tickets from ${source}` +
       (codebasePresent ? '' : ' (no codebase pasted yet — Agent 1 in text-only mode)'));
   }
+
+  // Connect the real RocketRide engine up front (estimator pipeline) so /health
+  // is accurate and the first dashboard load doesn't pay the connect+use cost.
+  initRocketride()
+    .then((s) => console.log(`[rocketride] ${s}`))
+    .catch(() => {});
 
   // Register the agent brain with Photon so messaging delivers it.
   await initPhoton(agentBrain);
