@@ -4,3 +4,10 @@ node_modules/
 web/node_modules/
 web/dist/
 *.log
+
+# Held input — paste codebase + jira tickets here; keep the contents out of git
+input/codebase/*
+input/jira/*
+!input/codebase/.gitkeep
+!input/jira/.gitkeep
+!input/README.md

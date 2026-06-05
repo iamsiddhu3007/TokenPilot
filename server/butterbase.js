@@ -17,11 +17,15 @@ const STORE = '.fallback-store.json';
 const _default = {
   tickets: [],
   budget: { period: 'weekly', total: 200, consumed: 0 }, // dollars
+  usage: {},      // memberId -> { costUSD, tokens, ticketsWorked, lastActiveTs }
+  history: [],    // append-only: { memberId, ticketId, title, tier, model, costUSD, tokens, effortHours, ts }
 };
 
 function load() {
   try {
-    return JSON.parse(fs.readFileSync(STORE, 'utf-8'));
+    const saved = JSON.parse(fs.readFileSync(STORE, 'utf-8'));
+    // backfill any fields added after this store was first written
+    return { ...JSON.parse(JSON.stringify(_default)), ...saved };
   } catch {
     return JSON.parse(JSON.stringify(_default));
   }
@@ -82,6 +86,38 @@ export async function setBudget(patch) {
   Object.assign(_mem.budget, patch);
   persist(_mem);
   return _mem.budget;
+}
+
+// ============================================================
+// PER-MEMBER USAGE + HISTORY (powers the manager + member dashboards)
+// ============================================================
+
+// recordUsage — attribute one worked-ticket event to a team member.
+// Appends to history (member view) and bumps the rolled-up usage (manager view).
+export async function recordUsage(memberId, entry) {
+  if (!memberId) return null;
+  const u = _mem.usage[memberId] || { costUSD: 0, tokens: 0, ticketsWorked: 0, lastActiveTs: 0 };
+  u.costUSD = +(u.costUSD + (entry.costUSD || 0)).toFixed(4);
+  u.tokens += entry.tokens || 0;
+  u.ticketsWorked += 1;
+  u.lastActiveTs = entry.ts || Date.now();
+  _mem.usage[memberId] = u;
+
+  _mem.history.push({ memberId, ts: entry.ts || Date.now(), ...entry });
+  // TODO (Butterbase): upsert usage row + insert history row.
+  persist(_mem);
+  return u;
+}
+
+// getUsage — rolled-up usage per member (NO history). For the manager dashboard.
+export async function getUsage() {
+  return _mem.usage;
+}
+
+// getHistory — full event log, optionally filtered to one member. For the member dashboard.
+export async function getHistory(memberId) {
+  const all = [..._mem.history].sort((a, b) => b.ts - a.ts);
+  return memberId ? all.filter((h) => h.memberId === memberId) : all;
 }
 
 export function butterbaseStatus() {

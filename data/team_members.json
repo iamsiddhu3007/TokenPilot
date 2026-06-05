@@ -1,0 +1,6 @@
+[
+  { "id": "U-01", "name": "Ava Chen",      "role": "Frontend",   "skills": ["frontend", "feature", "docs"],            "weeklyBudgetUSD": 60 },
+  { "id": "U-02", "name": "Ben Okoro",     "role": "Backend",    "skills": ["backend", "bug", "refactor", "feature"], "weeklyBudgetUSD": 60 },
+  { "id": "U-03", "name": "Carla Ruiz",    "role": "Full-stack", "skills": ["frontend", "backend", "feature", "bug"], "weeklyBudgetUSD": 50 },
+  { "id": "U-04", "name": "Dmitri Volkov", "role": "Platform",   "skills": ["backend", "refactor", "bug"],            "weeklyBudgetUSD": 30 }
+]

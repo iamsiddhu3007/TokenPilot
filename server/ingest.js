@@ -57,7 +57,7 @@ function pick(row, keys) {
   return '';
 }
 
-function normalize(row, idx) {
+export function normalize(row, idx) {
   const title = pick(row, ['title', 'summary', 'name', 'issue']) || `Ticket ${idx + 1}`;
   const description = pick(row, ['description', 'body', 'details', 'text']) || title;
   return {
@@ -70,7 +70,7 @@ function normalize(row, idx) {
   };
 }
 
-function loadRaw(file) {
+export function loadRaw(file) {
   const ext = path.extname(file).toLowerCase();
   const content = fs.readFileSync(file, 'utf-8');
   if (ext === '.json') {

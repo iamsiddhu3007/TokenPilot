@@ -5,7 +5,8 @@ import express from 'express';
 import cors from 'cors';
 
 import {
-  getTickets, getBudget, addSpend, updateTicket, butterbaseStatus,
+  getTickets, saveTickets, getBudget, addSpend, updateTicket,
+  recordUsage, butterbaseStatus,
 } from './butterbase.js';
 import {
   enrichAll, optimalOrder, estimateTicket, routeTicket, rocketrideStatus,
@@ -16,6 +17,11 @@ import {
 } from './xtrace.js';
 import { initPhoton, pushNotification, handleInboundFallback, photonStatus } from './photon.js';
 import { signUp, logIn, requireAuth, authStatus } from './auth.js';
+
+import { runPipeline } from './agents/orchestrator.js';
+import { analyzeAll, analyzerStatus } from './agents/analyzer.js';
+import { getManagerOverview, getMemberDetail } from './team.js';
+import { loadJiraTickets } from './inputs.js';
 
 const app = express();
 app.use(cors());
@@ -28,6 +34,7 @@ app.get('/health', (_req, res) => {
     butterbase: butterbaseStatus(),
     auth: authStatus(),
     rocketride: rocketrideStatus(),
+    analyzer: analyzerStatus(),
     gateway: gatewayStatus(),
     xtrace: xtraceStatus(),
     photon: photonStatus(),
@@ -109,6 +116,37 @@ app.get('/board', async (_req, res) => {
 
 app.get('/budget', async (_req, res) => res.json(await getBudget()));
 
+// ============================================================
+// TWO-AGENT PIPELINE
+//   Agent 1 (analyzer) → intel ;  Agent 2 (recommender) → recommendations
+// ============================================================
+
+// Agent 1 only: codebase intelligence per ticket.
+app.get('/intel', async (_req, res) => {
+  const tickets = await getTickets();
+  res.json(await analyzeAll(tickets));
+});
+
+// Full pipeline: Agent 1 + Agent 2 (priority, cost, effort/time, model, assignee).
+app.get('/recommendations', async (_req, res) => {
+  res.json(await runPipeline());
+});
+
+// ============================================================
+// DASHBOARDS
+//   /team       → MANAGER view: each member's usage + team board (no history)
+//   /team/:id   → MEMBER view : usage + history + their recommendations
+// ============================================================
+app.get('/team', async (_req, res) => {
+  res.json(await getManagerOverview());
+});
+
+app.get('/team/:id', async (req, res) => {
+  const detail = await getMemberDetail(req.params.id);
+  if (!detail) return res.status(404).json({ error: 'member not found' });
+  res.json(detail);
+});
+
 // --- actually WORK a ticket: route → call model via gateway → bill (Step 5) ---
 app.post('/work/:id', requireAuth, async (req, res) => {
   const tickets = await getTickets();
@@ -125,6 +163,27 @@ app.post('/work/:id', requireAuth, async (req, res) => {
 
   const result = await callModel(route.tier, prompt);
   await addSpend(result.costUSD);
+
+  // attribute this work to a team member so the dashboards have usage + history.
+  // Assignee comes from the request, else from Agent 2's recommendation.
+  let assigneeId = req.body?.assigneeId;
+  let effortHours = +(est.estimatedMinutes / 60).toFixed(1) || 1;
+  if (!assigneeId) {
+    const pipe = await runPipeline();
+    const rec = pipe.recommendations.find((r) => r.ticketId === ticket.id);
+    assigneeId = rec?.assignee?.id;
+    if (rec) effortHours = rec.estimatedEffortHours;
+  }
+  await recordUsage(assigneeId, {
+    ticketId: ticket.id,
+    title: ticket.title,
+    priority: ticket.priority,
+    tier: result.tier,
+    model: result.model,
+    costUSD: result.costUSD,
+    tokens: (result.inputTokens || 0) + (result.outputTokens || 0),
+    effortHours,
+  });
 
   // establish context after first (expensive) pass so next call can downshift
   if (!hasContext) {
@@ -155,6 +214,7 @@ app.post('/work/:id', requireAuth, async (req, res) => {
     model: result.model,
     why: route.why,
     cost: result.costUSD,
+    assignedTo: assigneeId || null,
     simulated: result.simulated || false,
     budget,
   });
@@ -184,12 +244,23 @@ app.post('/simulate-model-update', async (_req, res) => {
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, async () => {
   console.log(`TokenPilot server on :${PORT}`);
+
+  // Auto-load tickets if none are present yet: prefer input/jira/, else seed.
+  const existing = await getTickets();
+  if (!existing.length) {
+    const { tickets, source, codebasePresent } = loadJiraTickets();
+    await saveTickets(tickets);
+    console.log(`[ingest] loaded ${tickets.length} tickets from ${source}` +
+      (codebasePresent ? '' : ' (no codebase pasted yet — Agent 1 in text-only mode)'));
+  }
+
   // Register the agent brain with Photon so messaging delivers it.
   await initPhoton(agentBrain);
   console.log('Platform status →', {
     butterbase: butterbaseStatus(),
     auth: authStatus(),
     rocketride: rocketrideStatus(),
+    analyzer: analyzerStatus(),
     gateway: gatewayStatus(),
     xtrace: xtraceStatus(),
     photon: photonStatus(),
