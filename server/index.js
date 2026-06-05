@@ -13,14 +13,14 @@ import {
 } from './rocketride.js';
 import { callModel, gatewayStatus, TIER_PRICE_PER_1K } from './gateway.js';
 import {
-  writeMemory, searchMemory, reconcile, xtraceStatus, _allFacts,
+  writeMemory, searchMemory, reconcile, xtraceStatus, _allFacts, seedTeamFacts,
 } from './xtrace.js';
 import { initPhoton, pushNotification, handleInboundFallback, photonStatus } from './photon.js';
 import { signUp, logIn, requireAuth, authStatus } from './auth.js';
 
 import { runPipeline } from './agents/orchestrator.js';
 import { analyzeAll, analyzerStatus } from './agents/analyzer.js';
-import { getManagerOverview, getMemberDetail } from './team.js';
+import { getManagerOverview, getMemberDetail, loadMembers } from './team.js';
 import { loadJiraTickets } from './inputs.js';
 
 const app = express();
@@ -284,6 +284,11 @@ app.listen(PORT, async () => {
 
   // Register the agent brain with Photon so messaging delivers it.
   await initPhoton(agentBrain);
+
+  // Teach XTrace the team roster (durable facts the agent can recall).
+  seedTeamFacts(loadMembers())
+    .then((r) => r?.seeded ? console.log(`[xtrace] seeded ${r.seeded} team facts`) : null)
+    .catch(() => {});
   console.log('Platform status →', {
     butterbase: butterbaseStatus(),
     auth: authStatus(),
