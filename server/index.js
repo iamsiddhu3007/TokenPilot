@@ -153,6 +153,7 @@ app.post('/work/:id', requireAuth, async (req, res) => {
   const ticket = tickets.find((t) => t.id === req.params.id);
   if (!ticket) return res.status(404).json({ error: 'ticket not found' });
 
+  try {
   const est = await estimateTicket(ticket);
   const hasContext = !!ticket.contextSummary;
   // Honor a manually-selected model tier from the UI dropdown; else auto-route.
@@ -241,6 +242,10 @@ app.post('/work/:id', requireAuth, async (req, res) => {
     simulated: result.simulated || false,
     budget,
   });
+  } catch (err) {
+    console.error('[work] error:', err?.message || err);
+    res.status(500).json({ error: String(err?.message || err) });
+  }
 });
 
 // --- XTrace inspection: current beliefs + version history (UI panel) ---

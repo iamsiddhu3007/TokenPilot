@@ -1,123 +1,226 @@
 // butterbase.js — Butterbase client: tickets, budget, spend state.
 //
-// IMPORTANT: This file has an in-memory fallback so the app RUNS before you
-// wire Butterbase. Step 0 task for Claude Code: replace the fallback with real
-// Butterbase calls using the actual SDK/REST shape from docs.butterbase.ai.
-// Keep the same exported function signatures so nothing downstream changes.
+// REAL mode: when BUTTERBASE_API_KEY + BUTTERBASE_PROJECT_URL are set, every
+// call hits the live Butterbase REST data API (auto-generated from the schema):
+//   GET/POST/PATCH  ${PROJECT_URL}/{table}   with  Authorization: Bearer {key}
+// PROJECT_URL already includes /v1/{app_id}. Butterbase rows use a uuid `id` PK
+// (required by the by-id PATCH route), so the app's business keys live in
+// separate unique columns: tickets.key, budget.slot, usage.member_id. We look up
+// the uuid by the business key, then PATCH by uuid.
+// FALLBACK mode: an in-memory store persisted to .fallback-store.json.
 
 import 'dotenv/config';
 import fs from 'fs';
 
-const HAS_BUTTERBASE =
-  !!process.env.BUTTERBASE_API_KEY && !!process.env.BUTTERBASE_PROJECT_URL;
+const BASE = process.env.BUTTERBASE_PROJECT_URL;            // .../v1/{app_id}
+const KEY = process.env.BUTTERBASE_API_KEY;
+const HAS_BUTTERBASE = !!KEY && !!BASE;
 
-// ---- Fallback store persisted to disk so `ingest` and `index` (separate
-// processes) share state until real Butterbase is wired. ----
-const STORE = '.fallback-store.json';
-const _default = {
-  tickets: [],
-  budget: { period: 'weekly', total: 200, consumed: 0 }, // dollars
-  usage: {},      // memberId -> { costUSD, tokens, ticketsWorked, lastActiveTs }
-  history: [],    // append-only: { memberId, ticketId, title, tier, model, costUSD, tokens, effortHours, ts }
-};
-
-function load() {
-  try {
-    const saved = JSON.parse(fs.readFileSync(STORE, 'utf-8'));
-    // backfill any fields added after this store was first written
-    return { ...JSON.parse(JSON.stringify(_default)), ...saved };
-  } catch {
-    return JSON.parse(JSON.stringify(_default));
+// ---------- REST helpers ----------
+async function bb(method, path, body) {
+  const res = await fetch(`${BASE}${path}`, {
+    method,
+    headers: { Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '');
+    throw new Error(`butterbase ${method} ${path} → ${res.status} ${txt.slice(0, 200)}`);
   }
+  if (res.status === 204) return null;
+  return res.json();
 }
-function persist(state) {
-  if (!HAS_BUTTERBASE) fs.writeFileSync(STORE, JSON.stringify(state, null, 2));
+const num = (v) => (v == null ? 0 : Number(v));
+const one = (r) => (Array.isArray(r) ? r[0] : r);
+
+// ---------- ticket <-> row mapping ----------
+function rowToTicket(r) {
+  let labels = [];
+  try { labels = r.labels ? JSON.parse(r.labels) : []; } catch { labels = []; }
+  return {
+    id: r.key,                                   // the app's business id, e.g. "EXP-7304"
+    title: r.title,
+    description: r.description,
+    priority: r.priority,
+    type: r.type,
+    status: r.status,
+    createdAt: r.created_at,
+    labels,
+    contextSummary: r.context_summary || undefined,
+    completedAt: r.completed_at != null ? num(r.completed_at) : undefined,
+    actualCostUSD: r.actual_cost_usd != null ? num(r.actual_cost_usd) : undefined,
+    estimatedCostUSD: r.estimated_cost_usd != null ? num(r.estimated_cost_usd) : undefined,
+  };
+}
+function ticketToRow(t) {
+  return {
+    key: t.id,
+    title: t.title,
+    description: t.description,
+    priority: t.priority,
+    type: t.type,
+    status: t.status || 'open',
+    created_at: t.createdAt || new Date().toISOString(),
+    labels: JSON.stringify(t.labels || []),
+    context_summary: t.contextSummary ?? null,
+    completed_at: t.completedAt ?? null,
+    actual_cost_usd: t.actualCostUSD ?? null,
+    estimated_cost_usd: t.estimatedCostUSD ?? null,
+  };
+}
+const PATCH_MAP = {
+  status: 'status', completedAt: 'completed_at', actualCostUSD: 'actual_cost_usd',
+  estimatedCostUSD: 'estimated_cost_usd', contextSummary: 'context_summary',
+  title: 'title', description: 'description', priority: 'priority', type: 'type',
+};
+function patchToRow(patch) {
+  const row = {};
+  for (const [k, v] of Object.entries(patch)) if (PATCH_MAP[k]) row[PATCH_MAP[k]] = v;
+  return row;
+}
+// resolve a table's uuid id from a business-key column
+async function uuidByKey(table, col, val) {
+  const rows = await bb('GET', `/${table}?${col}=eq.${encodeURIComponent(val)}&select=id&limit=1`);
+  return rows && rows.length ? rows[0].id : null;
 }
 
+// ---- Fallback store (used only when HAS_BUTTERBASE is false) ----
+const STORE = '.fallback-store.json';
+const _default = { tickets: [], budget: { period: 'weekly', total: 200, consumed: 0 }, usage: {}, history: [] };
+function load() {
+  try { return { ...JSON.parse(JSON.stringify(_default)), ...JSON.parse(fs.readFileSync(STORE, 'utf-8')) }; }
+  catch { return JSON.parse(JSON.stringify(_default)); }
+}
+function persist(state) { if (!HAS_BUTTERBASE) fs.writeFileSync(STORE, JSON.stringify(state, null, 2)); }
 const _mem = load();
 
 // ============================================================
 // TICKETS
 // ============================================================
 export async function saveTickets(tickets) {
-  if (!HAS_BUTTERBASE) {
-    _mem.tickets = tickets;
-    persist(_mem);
-    return tickets;
+  if (!HAS_BUTTERBASE) { _mem.tickets = tickets; persist(_mem); return tickets; }
+  // POST each; a duplicate `key` (already seeded) just skips.
+  for (const t of tickets) {
+    await bb('POST', '/tickets', ticketToRow(t)).catch(() => {});
   }
-  // TODO (Step 0): upsert `tickets` into a Butterbase table.
-  // Example shape — replace with real client:
-  //   await bb.from('tickets').upsert(tickets);
-  _mem.tickets = tickets; // keep mirror until real call is in
-  persist(_mem);
   return tickets;
 }
 
 export async function getTickets() {
   if (!HAS_BUTTERBASE) return _mem.tickets;
-  // TODO (Step 0): return await bb.from('tickets').select('*');
-  return _mem.tickets;
+  const rows = await bb('GET', '/tickets?limit=500');
+  return (rows || []).map(rowToTicket);
 }
 
 export async function updateTicket(id, patch) {
-  const t = _mem.tickets.find((x) => x.id === id);
-  if (t) Object.assign(t, patch);
-  // TODO (Step 0): await bb.from('tickets').update(patch).eq('id', id);
-  persist(_mem);
-  return t;
+  if (!HAS_BUTTERBASE) {
+    const t = _mem.tickets.find((x) => x.id === id);
+    if (t) Object.assign(t, patch);
+    persist(_mem);
+    return t;
+  }
+  const uuid = await uuidByKey('tickets', 'key', id);
+  if (!uuid) return null;
+  const updated = await bb('PATCH', `/tickets/${uuid}`, patchToRow(patch));
+  const r = one(updated);
+  return r ? rowToTicket(r) : null;
 }
 
 // ============================================================
-// BUDGET / SPEND
+// BUDGET / SPEND  (single row, slot = 'current')
 // ============================================================
+async function budgetRow() {
+  const rows = await bb('GET', '/budget?slot=eq.current&limit=1');
+  if (rows && rows.length) return rows[0];
+  const created = await bb('POST', '/budget', { slot: 'current', period: 'weekly', total: 200, consumed: 0 });
+  return one(created);
+}
 export async function getBudget() {
   if (!HAS_BUTTERBASE) return _mem.budget;
-  // TODO (Step 0): return await bb.from('budget').select('*').single();
-  return _mem.budget;
+  const b = await budgetRow();
+  return { period: b.period, total: num(b.total), consumed: num(b.consumed) };
 }
-
 export async function addSpend(dollars) {
-  _mem.budget.consumed = +(_mem.budget.consumed + dollars).toFixed(4);
-  persist(_mem);
-  return _mem.budget;
+  if (!HAS_BUTTERBASE) {
+    _mem.budget.consumed = +(_mem.budget.consumed + dollars).toFixed(4);
+    persist(_mem);
+    return _mem.budget;
+  }
+  const b = await budgetRow();
+  const consumed = +(num(b.consumed) + dollars).toFixed(4);
+  await bb('PATCH', `/budget/${b.id}`, { consumed });
+  return { period: b.period, total: num(b.total), consumed };
 }
-
 export async function setBudget(patch) {
-  Object.assign(_mem.budget, patch);
-  persist(_mem);
-  return _mem.budget;
+  if (!HAS_BUTTERBASE) { Object.assign(_mem.budget, patch); persist(_mem); return _mem.budget; }
+  const b = await budgetRow();
+  await bb('PATCH', `/budget/${b.id}`, patch);
+  return getBudget();
 }
 
 // ============================================================
-// PER-MEMBER USAGE + HISTORY (powers the manager + member dashboards)
+// PER-MEMBER USAGE + HISTORY
 // ============================================================
-
-// recordUsage — attribute one worked-ticket event to a team member.
-// Appends to history (member view) and bumps the rolled-up usage (manager view).
 export async function recordUsage(memberId, entry) {
   if (!memberId) return null;
-  const u = _mem.usage[memberId] || { costUSD: 0, tokens: 0, ticketsWorked: 0, lastActiveTs: 0 };
-  u.costUSD = +(u.costUSD + (entry.costUSD || 0)).toFixed(4);
-  u.tokens += entry.tokens || 0;
-  u.ticketsWorked += 1;
-  u.lastActiveTs = entry.ts || Date.now();
-  _mem.usage[memberId] = u;
+  const ts = entry.ts || Date.now();
+  if (!HAS_BUTTERBASE) {
+    const u = _mem.usage[memberId] || { costUSD: 0, tokens: 0, ticketsWorked: 0, lastActiveTs: 0 };
+    u.costUSD = +(u.costUSD + (entry.costUSD || 0)).toFixed(4);
+    u.tokens += entry.tokens || 0;
+    u.ticketsWorked += 1;
+    u.lastActiveTs = ts;
+    _mem.usage[memberId] = u;
+    _mem.history.push({ memberId, ts, ...entry });
+    persist(_mem);
+    return u;
+  }
+  const existing = one(await bb('GET', `/usage?member_id=eq.${encodeURIComponent(memberId)}&limit=1`));
+  const prev = existing
+    ? { costUSD: num(existing.cost_usd), tokens: num(existing.tokens), ticketsWorked: num(existing.tickets_worked) }
+    : { costUSD: 0, tokens: 0, ticketsWorked: 0 };
+  const next = {
+    cost_usd: +(prev.costUSD + (entry.costUSD || 0)).toFixed(4),
+    tokens: prev.tokens + (entry.tokens || 0),
+    tickets_worked: prev.ticketsWorked + 1,
+    last_active_ts: ts,
+  };
+  if (existing) await bb('PATCH', `/usage/${existing.id}`, next);
+  else await bb('POST', '/usage', { member_id: memberId, ...next });
 
-  _mem.history.push({ memberId, ts: entry.ts || Date.now(), ...entry });
-  // TODO (Butterbase): upsert usage row + insert history row.
-  persist(_mem);
-  return u;
+  await bb('POST', '/history', {
+    member_id: memberId, ticket_id: entry.ticketId, title: entry.title, priority: entry.priority,
+    tier: entry.tier, model: entry.model, cost_usd: entry.costUSD || 0,
+    tokens: entry.tokens || 0, effort_hours: entry.effortHours || 0, ts,
+  }).catch(() => {});
+  return { costUSD: next.cost_usd, tokens: next.tokens, ticketsWorked: next.tickets_worked, lastActiveTs: ts };
 }
 
-// getUsage — rolled-up usage per member (NO history). For the manager dashboard.
 export async function getUsage() {
-  return _mem.usage;
+  if (!HAS_BUTTERBASE) return _mem.usage;
+  const rows = await bb('GET', '/usage?limit=500');
+  const out = {};
+  for (const r of rows || []) {
+    out[r.member_id] = {
+      costUSD: num(r.cost_usd), tokens: num(r.tokens),
+      ticketsWorked: num(r.tickets_worked), lastActiveTs: num(r.last_active_ts),
+    };
+  }
+  return out;
 }
 
-// getHistory — full event log, optionally filtered to one member. For the member dashboard.
 export async function getHistory(memberId) {
-  const all = [..._mem.history].sort((a, b) => b.ts - a.ts);
-  return memberId ? all.filter((h) => h.memberId === memberId) : all;
+  if (!HAS_BUTTERBASE) {
+    const all = [..._mem.history].sort((a, b) => b.ts - a.ts);
+    return memberId ? all.filter((h) => h.memberId === memberId) : all;
+  }
+  const filter = memberId ? `&member_id=eq.${encodeURIComponent(memberId)}` : '';
+  const rows = await bb('GET', `/history?order=ts.desc&limit=500${filter}`);
+  return (rows || []).map((r) => ({
+    memberId: r.member_id, ticketId: r.ticket_id, title: r.title, priority: r.priority,
+    tier: r.tier, model: r.model, costUSD: num(r.cost_usd), tokens: num(r.tokens),
+    effortHours: num(r.effort_hours), ts: num(r.ts),
+  }));
 }
 
 export function butterbaseStatus() {

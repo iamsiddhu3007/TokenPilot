@@ -15,17 +15,17 @@ const APP_ID = process.env.BUTTERBASE_APP_ID || '';
 
 // Tier → concrete model shown in the UI / dashboards.
 export const MODEL_TIERS = {
-  flagship: 'claude-opus-4-8',     // critical / heavy reasoning
-  mid: 'claude-sonnet-4-6',        // moderate
-  cheap: 'claude-haiku-4-5',       // grunt work / established context
+  flagship: 'claude-opus-4.8',     // critical / heavy reasoning
+  mid: 'claude-sonnet-4.6',        // moderate
+  cheap: 'claude-haiku-4.5',       // grunt work / established context
 };
 
-// Tier → Butterbase gateway model slug (provider/model). Override per tier via
-// BUTTERBASE_MODEL_FLAGSHIP / _MID / _CHEAP if the gateway exposes different IDs.
+// Tier → Butterbase gateway model slug (provider/model), verified against the
+// live catalog. Override per tier via BUTTERBASE_MODEL_FLAGSHIP / _MID / _CHEAP.
 const GATEWAY_MODELS = {
-  flagship: process.env.BUTTERBASE_MODEL_FLAGSHIP || 'anthropic/claude-opus-4-8',
-  mid: process.env.BUTTERBASE_MODEL_MID || 'anthropic/claude-sonnet-4-6',
-  cheap: process.env.BUTTERBASE_MODEL_CHEAP || 'anthropic/claude-haiku-4-5',
+  flagship: process.env.BUTTERBASE_MODEL_FLAGSHIP || 'anthropic/claude-opus-4.8',
+  mid: process.env.BUTTERBASE_MODEL_MID || 'anthropic/claude-sonnet-4.6',
+  cheap: process.env.BUTTERBASE_MODEL_CHEAP || 'anthropic/claude-haiku-4.5',
 };
 
 // Rough per-1K-token prices (USD) for live cost display. Adjust to real rates.
