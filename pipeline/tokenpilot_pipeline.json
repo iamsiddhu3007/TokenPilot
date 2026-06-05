@@ -1,0 +1,49 @@
+{
+  "name": "tokenpilot_pipeline",
+  "description": "Estimate, prioritize, and route engineering tickets by AI cost, time, and priority. Replace this skeleton with the real RocketRide pipeline JSON exported from the VS Code builder (see docs.rocketride.org).",
+  "version": "0.1.0",
+  "nodes": [
+    {
+      "id": "estimator",
+      "type": "agent",
+      "role": "Estimate token cost, time, and complexity for each ticket.",
+      "inputs": ["ticket", "xtrace_similar_tickets"],
+      "outputs": ["estimatedTokens", "estimatedMinutes", "complexity"],
+      "notes": "Query XTrace for 'tickets like this (type=X)' BEFORE estimating so numbers are grounded in real history."
+    },
+    {
+      "id": "budget",
+      "type": "agent",
+      "role": "Given all estimates + remaining quota + priorities, produce the optimal work ORDER that maximizes priority-weighted work inside budget.",
+      "inputs": ["estimates[]", "remainingBudget", "priorities"],
+      "outputs": ["orderedTickets", "fitsBudget[]"]
+    },
+    {
+      "id": "router",
+      "type": "agent",
+      "role": "Per ticket, pick model tier by balancing criticality vs. complexity vs. context size.",
+      "inputs": ["ticket", "complexity", "hasContext"],
+      "outputs": ["modelTier", "why"]
+    },
+    {
+      "id": "context",
+      "type": "agent",
+      "role": "Maintain a compact running summary per ticket so follow-up work doesn't re-send full history; enables downshift to cheaper model.",
+      "inputs": ["ticket", "priorSummary"],
+      "outputs": ["contextSummary"]
+    },
+    {
+      "id": "monitor",
+      "type": "agent",
+      "role": "Check model output against the context summary for drift/hallucination; flag low-confidence outputs.",
+      "inputs": ["output", "contextSummary"],
+      "outputs": ["driftFlag", "confidence"]
+    }
+  ],
+  "edges": [
+    { "from": "estimator", "to": "budget" },
+    { "from": "budget", "to": "router" },
+    { "from": "router", "to": "context" },
+    { "from": "context", "to": "monitor" }
+  ]
+}

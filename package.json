@@ -1,0 +1,17 @@
+{
+  "name": "tokenpilot",
+  "version": "0.1.0",
+  "description": "Autonomous cost-and-priority brain for your engineering backlog",
+  "type": "module",
+  "scripts": {
+    "start": "node server/index.js",
+    "ingest": "node server/ingest.js",
+    "dev": "node --watch server/index.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "csv-parse": "^5.5.6",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2"
+  }
+}

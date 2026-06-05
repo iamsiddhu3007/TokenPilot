@@ -1,0 +1,6 @@
+node_modules/
+.env
+.fallback-store.json
+web/node_modules/
+web/dist/
+*.log

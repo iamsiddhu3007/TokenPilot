@@ -1,0 +1,10 @@
+[
+  { "id": "TICK-101", "title": "Checkout returns 500 on Safari 17", "description": "Users on Safari 17 hit a 500 error at the payment confirmation step. Stripe webhook appears to fire but order is not persisted. Revenue-impacting.", "priority": "P0", "type": "bug", "status": "open" },
+  { "id": "TICK-102", "title": "Auth tokens expiring early in prod", "description": "Session tokens are expiring ~15 min instead of 24h after the latest deploy. Users forced to re-login repeatedly. Suspected clock/TTL misconfig.", "priority": "P0", "type": "bug", "status": "open" },
+  { "id": "TICK-103", "title": "Add SSO login (Google + Okta)", "description": "Enterprise customers require SSO. Implement OAuth2 with Google and Okta providers, plus account linking for existing email users.", "priority": "P1", "type": "feature", "status": "open" },
+  { "id": "TICK-104", "title": "Dashboard charts load slowly (>4s)", "description": "Analytics dashboard takes 4-6s to render on accounts with large datasets. Likely N+1 queries on the metrics endpoint. Needs profiling.", "priority": "P1", "type": "bug", "status": "open" },
+  { "id": "TICK-105", "title": "Migrate user service from REST to GraphQL", "description": "Consolidate the 8 user-related REST endpoints into a single GraphQL schema to reduce over-fetching and simplify the mobile client.", "priority": "P2", "type": "refactor", "status": "open" },
+  { "id": "TICK-106", "title": "Add CSV export to reports page", "description": "Allow users to export any report table to CSV. Should respect current filters and column ordering.", "priority": "P2", "type": "feature", "status": "open" },
+  { "id": "TICK-107", "title": "Update API docs for v2 endpoints", "description": "The public API docs still reference v1 routes. Update all examples, request/response samples, and the authentication section for v2.", "priority": "P3", "type": "docs", "status": "open" },
+  { "id": "TICK-108", "title": "Clean up unused feature flags", "description": "Remove 12 stale LaunchDarkly flags that are fully rolled out or abandoned, and delete the dead code paths behind them.", "priority": "P3", "type": "refactor", "status": "open" }
+]
