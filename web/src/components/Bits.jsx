@@ -19,6 +19,15 @@ export function TierBadge({ tier }) {
   );
 }
 
+// Shows the concrete model name (e.g. "claude-opus-4-8"), coloured by its tier.
+export function ModelBadge({ model, tier }) {
+  return (
+    <span className="model-badge" style={{ borderColor: TIER_COLOR[tier] || '#3b82f6', color: TIER_COLOR[tier] || '#3b82f6' }}>
+      {model || tier}
+    </span>
+  );
+}
+
 // A labelled progress bar (used for budget usage).
 export function Bar({ pct, warn }) {
   return (
@@ -50,4 +59,22 @@ export function timeAgo(ts) {
 
 export function initials(name = '') {
   return name.split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase();
+}
+
+// "Jun 3, 2026" — the date a ticket was created.
+export function dateFmt(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (isNaN(d)) return '—';
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+// Relative deadline → { text, overdue }. e.g. "in 4 days" / "due today" / "2 days overdue".
+export function deadlineFmt(iso) {
+  if (!iso) return { text: '—', overdue: false };
+  const days = Math.round((new Date(iso).getTime() - Date.now()) / 86400000);
+  if (days < 0) return { text: `${Math.abs(days)}d overdue`, overdue: true };
+  if (days === 0) return { text: 'due today', overdue: true };
+  if (days === 1) return { text: 'in 1 day', overdue: false };
+  return { text: `in ${days} days`, overdue: false };
 }

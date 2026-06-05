@@ -3,13 +3,16 @@ import { api } from './lib/api.js';
 import ManagerView from './views/ManagerView.jsx';
 import MemberView from './views/MemberView.jsx';
 
+// Deep-link support: ?view=member&m=U-01 opens straight to a member dashboard.
+const params = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
+
 export default function App() {
-  const [view, setView] = useState('manager'); // 'manager' | 'member'
+  const [view, setView] = useState(params.get('view') === 'member' ? 'member' : 'manager');
   const [managerData, setManagerData] = useState(null);
-  const [memberId, setMemberId] = useState(null);
+  const [memberId, setMemberId] = useState(params.get('m') || null);
   const [memberData, setMemberData] = useState(null);
   const [health, setHealth] = useState(null);
-  const [working, setWorking] = useState(null);
+  const [completing, setCompleting] = useState(null);
   const [error, setError] = useState(null);
 
   const loadManager = useCallback(async () => {
@@ -50,17 +53,17 @@ export default function App() {
     }
   }
 
-  async function work(ticketId) {
-    setWorking(ticketId);
+  async function complete(ticketId, expectedCostUSD, tier) {
+    setCompleting(ticketId);
     setError(null);
     try {
-      await api.work(ticketId, memberId); // attribute to the open member
+      await api.complete(ticketId, memberId, expectedCostUSD, tier); // attribute to the open member
       await loadMember(memberId);
       await loadManager();
     } catch (e) {
       setError(e.message);
     } finally {
-      setWorking(null);
+      setCompleting(null);
     }
   }
 
@@ -106,7 +109,7 @@ export default function App() {
 
       {view === 'manager'
         ? <ManagerView data={managerData} onOpenMember={openMember} />
-        : <MemberView data={memberData} onWork={work} working={working} />}
+        : <MemberView data={memberData} onComplete={complete} completing={completing} />}
     </div>
   );
 }

@@ -10,21 +10,80 @@
 // keep the returned recommendation shape stable.
 
 import { estimateTicket, routeTicket } from '../rocketride.js';
-import { TIER_PRICE_PER_1K } from '../gateway.js';
+import { TIER_PRICE_PER_1K, MODEL_TIERS } from '../gateway.js';
 
 const PRIORITY_WEIGHT = { P0: 100, P1: 60, P2: 30, P3: 10 };
 const SURFACE_MULT = { small: 0.85, moderate: 1.0, large: 1.4 };
+
+// SLA window per priority — drives the displayed deadline (from ticket createdAt).
+const DEADLINE_DAYS = { P0: 2, P1: 5, P2: 10, P3: 21 };
+
+// Per-tier model recommendation copy: the concrete model name + why + a cheaper alt.
+const MODEL_INFO = {
+  flagship: { why: 'Critical/complex work — deep multi-step reasoning is worth the cost.', alt: MODEL_TIERS.mid },
+  mid: { why: 'Moderate scope — strong quality at a balanced price.', alt: MODEL_TIERS.cheap },
+  cheap: { why: 'Low-risk, well-scoped work — fast and inexpensive.', alt: MODEL_TIERS.cheap },
+};
+
+function deadlineFor(ticket) {
+  const base = ticket.createdAt ? new Date(ticket.createdAt).getTime() : Date.now();
+  const days = DEADLINE_DAYS[ticket.priority] ?? 14;
+  return new Date(base + days * 86400000).toISOString();
+}
+
+// A one-line, context-aware suggestion for how to approach the ticket.
+function suggestionFor(ticket, complexity, intel) {
+  if (ticket.priority === 'P0') return 'Pair with on-call and ship behind a feature flag — this is availability/revenue-impacting.';
+  if (ticket.type === 'docs') return 'Low-risk — batch with other docs/chore tickets in a single cheap-model pass.';
+  if (complexity === 'high') return 'Break into sub-tasks; run the first pass on the flagship model, then downshift once context is established.';
+  if ((intel?.touchedAreas?.length || 0) >= 3) return 'Spans multiple modules — add integration tests before merging.';
+  if (ticket.type === 'refactor') return 'No behavior change expected; lean on the existing test suite as a guardrail.';
+  if (ticket.priority === 'P1') return 'Reproduce first, add a regression test, then fix.';
+  return 'Straightforward — a single focused session should clear it.';
+}
 
 function projectedCost(tier, tokens) {
   const per1k = TIER_PRICE_PER_1K[tier] ?? TIER_PRICE_PER_1K.mid;
   return +((tokens / 1000) * per1k).toFixed(2);
 }
 
-// Effort in hours: token-reasoning proxy + a code-surface proxy from intel.
-function effortHours(tokens, intel) {
-  const reasoning = tokens / 9000;            // ~heavier tickets take longer
-  const surface = (intel?.totalLoc || 0) / 220; // bigger change surface = more time
-  return +(Math.max(0.5, reasoning + surface)).toFixed(1);
+// Effort in hours. Two parts:
+//   baseEffort — the ticket's intrinsic size (independent of model), from
+//                reasoning tokens + a (capped) code-surface signal.
+//   factor     — the CHOSEN model: a stronger model needs LESS human
+//                hand-holding (opus < sonnet < haiku), but costs more. That
+//                cost↔effort tradeoff is exactly what the dropdown visualises.
+const EFFORT_FACTOR = { flagship: 0.7, mid: 1.0, cheap: 1.4 };
+// Docs/chores barely touch code, so down-weight their surface signal (the
+// keyword analyzer over-matches docs words to source files).
+const TYPE_SURFACE_MULT = { docs: 0.15, bug: 0.85, feature: 1.0, refactor: 1.25 };
+function baseEffort(tokens, intel, type) {
+  const reasoning = tokens / 11000;                      // heavier tickets take longer
+  const surfaceRaw = (intel?.totalLoc || 0) / 220;       // bigger change surface = more time
+  const surface = Math.min(surfaceRaw * (TYPE_SURFACE_MULT[type] ?? 1), 8);
+  return Math.max(0.4, reasoning + surface);
+}
+function effortHours(tokens, intel, tier, type) {
+  const hrs = baseEffort(tokens, intel, type) * (EFFORT_FACTOR[tier] ?? 1);
+  return +Math.min(hrs, 80).toFixed(1);                  // global sanity cap
+}
+
+// Cost for a given model tier at this token estimate.
+function costFor(tier, tokens) {
+  return projectedCost(tier, tokens);
+}
+
+// Build the full set of model choices (suggested + alternatives), each with its
+// own cost + effort, so the UI can offer a dropdown that recomputes live.
+const ALL_TIERS = ['flagship', 'mid', 'cheap'];
+function buildModelOptions(tokens, intel, suggestedTier, type) {
+  return ALL_TIERS.map((t) => ({
+    tier: t,
+    model: MODEL_TIERS[t],
+    costUSD: costFor(t, tokens),
+    effortHours: effortHours(tokens, intel, t, type),
+    suggested: t === suggestedTier,
+  }));
 }
 
 function complexityFromTokens(tokens) {
@@ -77,19 +136,31 @@ export async function recommendAll(tickets, intelList, ctx = {}) {
       const route = routeTicket(t, complexity, false);
       const cost = projectedCost(route.tier, tokens);
 
+      const tierInfo = MODEL_INFO[route.tier] || MODEL_INFO.mid;
       return {
         ticketId: t.id,
         title: t.title,
+        description: t.description,
         priority: t.priority,
         type: t.type,
-        status: t.status,
+        status: t.status || 'open',
+        createdAt: t.createdAt || null,
+        deadline: deadlineFor(t),
         estimatedTokens: tokens,
         estimatedCostUSD: cost,
-        estimatedEffortHours: effortHours(tokens, intel),
+        estimatedEffortHours: effortHours(tokens, intel, route.tier, t.type),
         complexity,
         recommendedModelTier: route.tier,
-        recommendedModel: route.tier,
+        recommendedModel: MODEL_TIERS[route.tier],   // concrete name, e.g. claude-opus-4-8
+        modelWhy: tierInfo.why,
+        modelAlt: tierInfo.alt,
+        // every model choice with its own cost + effort (powers the dropdown)
+        modelOptions: buildModelOptions(tokens, intel, route.tier, t.type),
+        suggestion: suggestionFor(t, complexity, intel),
         priorityWeight: PRIORITY_WEIGHT[t.priority] ?? 10,
+        // completed-state passthrough (set when a ticket is completed via /work)
+        completedAt: t.completedAt || null,
+        actualCostUSD: t.actualCostUSD ?? null,
         intel: {
           relatedFiles: intel.relatedFiles || [],
           touchedAreas: intel.touchedAreas || [],

@@ -11,7 +11,7 @@ import {
 import {
   enrichAll, optimalOrder, estimateTicket, routeTicket, rocketrideStatus,
 } from './rocketride.js';
-import { callModel, gatewayStatus } from './gateway.js';
+import { callModel, gatewayStatus, TIER_PRICE_PER_1K } from './gateway.js';
 import {
   writeMemory, searchMemory, reconcile, xtraceStatus, _allFacts,
 } from './xtrace.js';
@@ -155,14 +155,28 @@ app.post('/work/:id', requireAuth, async (req, res) => {
 
   const est = await estimateTicket(ticket);
   const hasContext = !!ticket.contextSummary;
-  const route = routeTicket(ticket, est.complexity, hasContext);
+  // Honor a manually-selected model tier from the UI dropdown; else auto-route.
+  const route = req.body?.tier
+    ? { tier: req.body.tier, why: `manually selected ${req.body.tier} model` }
+    : routeTicket(ticket, est.complexity, hasContext);
 
   const prompt = ticket.contextSummary
     ? `Context: ${ticket.contextSummary}\n\nTask: ${ticket.title}\n${ticket.description}`
     : `Task: ${ticket.title}\n${ticket.description}`;
 
   const result = await callModel(route.tier, prompt);
-  await addSpend(result.costUSD);
+
+  // EXPECTED vs ACTUAL cost. The UI sends the expected (recommended) cost it
+  // displayed; the "real" cost used is that expected figure with random usage
+  // variance applied (simulated actual consumption). Falls back to a token-based
+  // estimate if no expected cost was provided (e.g. a raw curl).
+  const expectedCostUSD = req.body?.expectedCostUSD != null
+    ? Number(req.body.expectedCostUSD)
+    : +((est.estimatedTokens / 1000) * (TIER_PRICE_PER_1K[route.tier] ?? 0.003)).toFixed(2);
+  const jitter = 0.75 + Math.random() * 0.7;                  // 0.75x – 1.45x
+  const actualCostUSD = +Math.max(0.0001, expectedCostUSD * jitter).toFixed(4);
+
+  await addSpend(actualCostUSD);
 
   // attribute this work to a team member so the dashboards have usage + history.
   // Assignee comes from the request, else from Agent 2's recommendation.
@@ -180,17 +194,22 @@ app.post('/work/:id', requireAuth, async (req, res) => {
     priority: ticket.priority,
     tier: result.tier,
     model: result.model,
-    costUSD: result.costUSD,
+    costUSD: actualCostUSD,
     tokens: (result.inputTokens || 0) + (result.outputTokens || 0),
     effortHours,
   });
 
-  // establish context after first (expensive) pass so next call can downshift
-  if (!hasContext) {
-    await updateTicket(ticket.id, {
-      contextSummary: `Working on ${ticket.type}: ${ticket.title}. Key details captured.`,
-    });
-  }
+  // Mark the ticket COMPLETED with its real (random) cost so the dashboards can
+  // show "expected → actual". Establish context too (downshifts any re-run).
+  const completedAt = Date.now();
+  await updateTicket(ticket.id, {
+    status: 'completed',
+    completedAt,
+    actualCostUSD,
+    estimatedCostUSD: expectedCostUSD,
+    contextSummary: ticket.contextSummary
+      || `Completed ${ticket.type}: ${ticket.title}. Key details captured.`,
+  });
 
   // PROACTIVE PHOTON PUSH: high-priority work triggers a team notification.
   const budget = await getBudget();
@@ -198,7 +217,7 @@ app.post('/work/:id', requireAuth, async (req, res) => {
   if (ticket.priority === 'P0') {
     await pushNotification(
       process.env.PHOTON_TARGET,
-      `🚨 P0 worked: ${ticket.id} "${ticket.title}" via ${result.tier} model ($${result.costUSD}). Budget left: $${remaining.toFixed(2)}.`
+      `🚨 P0 completed: ${ticket.id} "${ticket.title}" via ${result.tier} model ($${actualCostUSD}). Budget left: $${remaining.toFixed(2)}.`
     );
   }
   if (remaining < budget.total * 0.15) {
@@ -213,7 +232,11 @@ app.post('/work/:id', requireAuth, async (req, res) => {
     routedTo: result.tier,
     model: result.model,
     why: route.why,
-    cost: result.costUSD,
+    estimatedCostUSD: expectedCostUSD,
+    actualCostUSD,
+    cost: actualCostUSD,
+    completed: true,
+    completedAt,
     assignedTo: assigneeId || null,
     simulated: result.simulated || false,
     budget,

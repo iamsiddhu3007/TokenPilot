@@ -60,6 +60,7 @@ function pick(row, keys) {
 export function normalize(row, idx) {
   const title = pick(row, ['title', 'summary', 'name', 'issue']) || `Ticket ${idx + 1}`;
   const description = pick(row, ['description', 'body', 'details', 'text']) || title;
+  const created = pick(row, ['createdat', 'created_at', 'created', 'date', 'opened']);
   return {
     id: pick(row, ['id', 'key', 'issue_id', 'ticket_id']) || `TICK-${1000 + idx}`,
     title: String(title).slice(0, 160),
@@ -67,6 +68,8 @@ export function normalize(row, idx) {
     priority: normalizePriority(pick(row, ['priority', 'severity', 'importance']), idx),
     type: normalizeType(pick(row, ['type', 'issuetype', 'category', 'label']), title, description),
     status: pick(row, ['status', 'state']) || 'open',
+    // ISO timestamp the UI shows as "date created"; default to now when absent.
+    createdAt: created ? new Date(created).toISOString() : new Date().toISOString(),
   };
 }
 

@@ -20,7 +20,12 @@ export const api = {
   recommendations: () => req('/recommendations'),
   intel: () => req('/intel'),
   // actions
-  work: (id, assigneeId) =>
-    req(`/work/${id}`, { method: 'POST', body: JSON.stringify({ assigneeId }) }),
+  // Complete a ticket: routes → calls the model → returns the real (random) cost.
+  // `tier` (optional) forces the chosen model; `expectedCostUSD` is that model's estimate.
+  complete: (id, assigneeId, expectedCostUSD, tier) =>
+    req(`/work/${id}`, {
+      method: 'POST',
+      body: JSON.stringify({ assigneeId, expectedCostUSD, tier }),
+    }),
   simulateModelUpdate: () => req('/simulate-model-update', { method: 'POST' }),
 };
