@@ -161,6 +161,8 @@ export async function recommendAll(tickets, intelList, ctx = {}) {
         // completed-state passthrough (set when a ticket is completed via /work)
         completedAt: t.completedAt || null,
         actualCostUSD: t.actualCostUSD ?? null,
+        assignedTo: t.assignedTo || null,   // manual assignee override (from "add ticket")
+        manualRank: t.manualRank ?? null,   // manual drag-reorder position
         intel: {
           relatedFiles: intel.relatedFiles || [],
           touchedAreas: intel.touchedAreas || [],
@@ -187,7 +189,9 @@ export async function recommendAll(tickets, intelList, ctx = {}) {
     const fitsBudget = spent + r.estimatedCostUSD <= remainingBudget;
     if (fitsBudget) spent += r.estimatedCostUSD;
 
-    const assignee = chooseAssignee(r, r.intel, members, loadByMember);
+    // a manual assignee (set via "add ticket") wins over the load-balancer.
+    const assignee = (r.assignedTo && members.find((m) => m.id === r.assignedTo))
+      || chooseAssignee(r, r.intel, members, loadByMember);
     if (assignee) loadByMember[assignee.id] = (loadByMember[assignee.id] || 0) + r.estimatedCostUSD;
 
     const rationale =

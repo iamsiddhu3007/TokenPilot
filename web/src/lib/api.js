@@ -19,6 +19,9 @@ export const api = {
   // two-agent pipeline (raw)
   recommendations: () => req('/recommendations'),
   intel: () => req('/intel'),
+  // manager actions
+  addTicket: (t) => req('/tickets', { method: 'POST', body: JSON.stringify(t) }),
+  reorder: (order) => req('/reorder', { method: 'POST', body: JSON.stringify({ order }) }),
   // actions
   // Complete a ticket: routes → calls the model → returns the real (random) cost.
   // `tier` (optional) forces the chosen model; `expectedCostUSD` is that model's estimate.

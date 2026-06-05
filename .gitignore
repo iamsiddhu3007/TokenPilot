@@ -1,5 +1,6 @@
 node_modules/
 .env
+.claude/settings.local.json
 .mcp.json
 .fallback-store.json
 web/node_modules/

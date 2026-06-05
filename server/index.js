@@ -5,7 +5,7 @@ import express from 'express';
 import cors from 'cors';
 
 import {
-  getTickets, saveTickets, getBudget, addSpend, updateTicket,
+  getTickets, saveTickets, createTicket, getBudget, addSpend, updateTicket,
   recordUsage, butterbaseStatus,
 } from './butterbase.js';
 import {
@@ -91,6 +91,42 @@ app.post('/chat', async (req, res) => {
 // --- raw tickets (Step 1) ---
 app.get('/tickets', async (_req, res) => {
   res.json(await getTickets());
+});
+
+// --- manager: create a ticket (optionally pre-assigned to a member) ---
+app.post('/tickets', async (req, res) => {
+  try {
+    const b = req.body || {};
+    if (!b.title) return res.status(400).json({ error: 'title required' });
+    const tickets = await getTickets();
+    const key = b.id || `MGR-${100 + tickets.length + 1}`;
+    const ticket = {
+      id: key,
+      title: String(b.title).slice(0, 160),
+      description: String(b.description || b.title).slice(0, 1000),
+      priority: ['P0', 'P1', 'P2', 'P3'].includes(b.priority) ? b.priority : 'P2',
+      type: ['bug', 'feature', 'refactor', 'docs'].includes(b.type) ? b.type : 'feature',
+      status: 'open',
+      createdAt: new Date().toISOString(),
+      assignedTo: b.assigneeId || undefined,
+      labels: [],
+    };
+    res.json(await createTicket(ticket));
+  } catch (err) {
+    console.error('[tickets] create error:', err?.message || err);
+    res.status(500).json({ error: String(err?.message || err) });
+  }
+});
+
+// --- manager: apply a manual drag-reorder (writes manual_rank per ticket) ---
+app.post('/reorder', async (req, res) => {
+  try {
+    const order = Array.isArray(req.body?.order) ? req.body.order : [];
+    await Promise.all(order.map((id, i) => updateTicket(id, { manualRank: i })));
+    res.json({ ok: true, count: order.length });
+  } catch (err) {
+    res.status(500).json({ error: String(err?.message || err) });
+  }
 });
 
 // --- enriched + optimally ordered board (Steps 2–4) ---
@@ -212,15 +248,14 @@ app.post('/work/:id', requireAuth, async (req, res) => {
       || `Completed ${ticket.type}: ${ticket.title}. Key details captured.`,
   });
 
-  // PROACTIVE PHOTON PUSH: high-priority work triggers a team notification.
+  // PROACTIVE PHOTON PUSH: text the user on EVERY ticket completion ("done").
   const budget = await getBudget();
   const remaining = budget.total - budget.consumed;
-  if (ticket.priority === 'P0') {
-    await pushNotification(
-      process.env.PHOTON_TARGET,
-      `🚨 P0 completed: ${ticket.id} "${ticket.title}" via ${result.tier} model ($${actualCostUSD}). Budget left: $${remaining.toFixed(2)}.`
-    );
-  }
+  const flag = ticket.priority === 'P0' ? '🚨 P0' : '✅';
+  await pushNotification(
+    process.env.PHOTON_TARGET,
+    `${flag} Done: ${ticket.id} "${ticket.title}" via ${result.tier} model ($${actualCostUSD}). Budget left: $${remaining.toFixed(2)}.`
+  );
   if (remaining < budget.total * 0.15) {
     await pushNotification(
       process.env.PHOTON_TARGET,

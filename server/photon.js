@@ -117,7 +117,10 @@ export async function pushNotification(target, text) {
       console.warn('[photon] pushNotification: no recipient; set PHOTON_TARGET=<phone or iMessage handle>');
       return { delivered: false, simulated: true, text };
     }
-    const space = await _im.space({ phone });
+    // The recipient must be passed as a STRING (it's resolved into a user).
+    // Passing { phone } is read as space *params* with zero users → the
+    // "iMessage space creation requires at least one user" error.
+    const space = await _im.space(phone);
     await _spectrum.send(space, text);
     return { delivered: true, text };
   } catch (err) {

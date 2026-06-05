@@ -40,13 +40,35 @@ function recsByMember(recommendations) {
 // MANAGER VIEW — usage of each team member + team dashboard (no history)
 // ============================================================
 export async function getManagerOverview() {
-  const [usage, budget, pipeline] = await Promise.all([
+  const [usage, budget, pipeline, history] = await Promise.all([
     getUsage(),
     getBudget(),
     runPipeline(),
+    getHistory(),
   ]);
   const members = loadMembers();
-  const byMember = recsByMember(pipeline.recommendations);
+  // Completed tickets leave the queue + assignment cards (they live in History).
+  const openRecs = pipeline.recommendations.filter((r) => r.completedAt == null && r.actualCostUSD == null);
+  const byMember = recsByMember(openRecs);
+
+  // Budget burn-rate projection ("dry by …") from spend history.
+  let burnRatePerDay = 0, dryDate = null, daysLeft = null;
+  if (history.length && budget.consumed > 0) {
+    const firstTs = Math.min(...history.map((h) => h.ts));
+    const elapsedDays = Math.max(1 / 24, (Date.now() - firstTs) / 86400000); // floor ~1h
+    burnRatePerDay = +(budget.consumed / elapsedDays).toFixed(2);
+    const remaining = budget.total - budget.consumed;
+    if (burnRatePerDay > 0) {
+      daysLeft = +(remaining / burnRatePerDay).toFixed(1);
+      dryDate = new Date(Date.now() + daysLeft * 86400000).toISOString();
+    }
+  }
+
+  // Manual drag-reorder wins when any ticket has a manual_rank.
+  const anyManual = openRecs.some((r) => r.manualRank != null);
+  const queue = anyManual
+    ? [...openRecs].sort((a, b) => (a.manualRank ?? 1e9) - (b.manualRank ?? 1e9))
+    : openRecs;
 
   const memberCards = members.map((m) => {
     const u = usage[m.id] || { costUSD: 0, tokens: 0, ticketsWorked: 0, lastActiveTs: 0 };
@@ -83,14 +105,18 @@ export async function getManagerOverview() {
       memberCount: members.length,
       spentUSD: teamSpent,
       remainingUSD: +(budget.total - budget.consumed).toFixed(2),
-      openRecommendations: pipeline.recommendations.length,
-      overBudgetTickets: pipeline.recommendations.filter((r) => !r.fitsBudget).length,
+      openRecommendations: openRecs.length,
+      overBudgetTickets: openRecs.filter((r) => !r.fitsBudget).length,
+      burnRatePerDay,
+      dryDate,
+      daysLeft,
     },
     codebasePresent: pipeline.codebasePresent,
     indexedFiles: pipeline.indexedFiles,
     members: memberCards,
-    // the prioritized queue, so a manager can see team-wide order at a glance
-    queue: pipeline.recommendations,
+    // the prioritized queue (completed tickets drop to History), so a manager
+    // can see team-wide order at a glance
+    queue,
   };
 }
 

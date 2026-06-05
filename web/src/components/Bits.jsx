@@ -28,6 +28,42 @@ export function ModelBadge({ model, tier }) {
   );
 }
 
+// Horizontal bar chart (SVG-free, CSS). data: [{label, value, sub?, color?}].
+export function BarChart({ data, unit = '$' }) {
+  const max = Math.max(0.0001, ...data.map((d) => d.value));
+  return (
+    <div className="chart-bars">
+      {data.map((d, i) => (
+        <div key={i} className="cbar-row">
+          <span className="cbar-label">{d.label}</span>
+          <div className="cbar-track">
+            <div className="cbar-fill" style={{ width: `${(d.value / max) * 100}%`, background: d.color || 'var(--accent)' }} />
+          </div>
+          <span className="cbar-val">{unit}{(d.value).toFixed(2)}{d.sub ? <span className="muted"> · {d.sub}</span> : null}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Donut gauge (SVG). pct 0-100.
+export function Donut({ pct, label, sub, warn }) {
+  const r = 34, c = 2 * Math.PI * r, p = Math.min(100, Math.max(0, pct || 0));
+  const off = c - (p / 100) * c;
+  return (
+    <div className="donut">
+      <svg width="84" height="84" viewBox="0 0 84 84">
+        <circle cx="42" cy="42" r={r} fill="none" stroke="var(--border)" strokeWidth="9" />
+        <circle cx="42" cy="42" r={r} fill="none" stroke={warn ? '#f59e0b' : 'var(--accent)'} strokeWidth="9"
+          strokeDasharray={c} strokeDashoffset={off} strokeLinecap="round" transform="rotate(-90 42 42)" />
+        <text x="42" y="40" textAnchor="middle" className="donut-pct">{Math.round(p)}%</text>
+        {sub && <text x="42" y="55" textAnchor="middle" className="donut-sub">{sub}</text>}
+      </svg>
+      <div className="donut-label">{label}</div>
+    </div>
+  );
+}
+
 // A labelled progress bar (used for budget usage).
 export function Bar({ pct, warn }) {
   return (

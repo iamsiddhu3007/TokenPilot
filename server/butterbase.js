@@ -50,6 +50,8 @@ function rowToTicket(r) {
     completedAt: r.completed_at != null ? num(r.completed_at) : undefined,
     actualCostUSD: r.actual_cost_usd != null ? num(r.actual_cost_usd) : undefined,
     estimatedCostUSD: r.estimated_cost_usd != null ? num(r.estimated_cost_usd) : undefined,
+    assignedTo: r.assigned_to || undefined,
+    manualRank: r.manual_rank != null ? num(r.manual_rank) : undefined,
   };
 }
 function ticketToRow(t) {
@@ -66,12 +68,15 @@ function ticketToRow(t) {
     completed_at: t.completedAt ?? null,
     actual_cost_usd: t.actualCostUSD ?? null,
     estimated_cost_usd: t.estimatedCostUSD ?? null,
+    assigned_to: t.assignedTo ?? null,
+    manual_rank: t.manualRank ?? null,
   };
 }
 const PATCH_MAP = {
   status: 'status', completedAt: 'completed_at', actualCostUSD: 'actual_cost_usd',
   estimatedCostUSD: 'estimated_cost_usd', contextSummary: 'context_summary',
   title: 'title', description: 'description', priority: 'priority', type: 'type',
+  assignedTo: 'assigned_to', manualRank: 'manual_rank',
 };
 function patchToRow(patch) {
   const row = {};
@@ -110,6 +115,13 @@ export async function getTickets() {
   if (!HAS_BUTTERBASE) return _mem.tickets;
   const rows = await bb('GET', '/tickets?limit=500');
   return (rows || []).map(rowToTicket);
+}
+
+// createTicket — insert ONE new ticket (manager "add ticket"). Returns the saved ticket.
+export async function createTicket(t) {
+  if (!HAS_BUTTERBASE) { _mem.tickets.push(t); persist(_mem); return t; }
+  const created = await bb('POST', '/tickets', ticketToRow(t));
+  return rowToTicket(one(created));
 }
 
 export async function updateTicket(id, patch) {

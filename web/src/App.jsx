@@ -2,12 +2,13 @@ import { useEffect, useState, useCallback } from 'react';
 import { api } from './lib/api.js';
 import ManagerView from './views/ManagerView.jsx';
 import MemberView from './views/MemberView.jsx';
+import IndexingView from './views/IndexingView.jsx';
 
 // Deep-link support: ?view=member&m=U-01 opens straight to a member dashboard.
 const params = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
 
 export default function App() {
-  const [view, setView] = useState(params.get('view') === 'member' ? 'member' : 'manager');
+  const [view, setView] = useState(['member', 'indexing'].includes(params.get('view')) ? params.get('view') : 'manager');
   const [managerData, setManagerData] = useState(null);
   const [memberId, setMemberId] = useState(params.get('m') || null);
   const [memberData, setMemberData] = useState(null);
@@ -67,6 +68,17 @@ export default function App() {
     }
   }
 
+  async function addTicket(t) {
+    setError(null);
+    try { await api.addTicket(t); await loadManager(); }
+    catch (e) { setError(e.message); throw e; }
+  }
+  async function reorder(order) {
+    setError(null);
+    try { await api.reorder(order); await loadManager(); }
+    catch (e) { setError(e.message); throw e; }
+  }
+
   const members = managerData?.members || [];
 
   return (
@@ -107,9 +119,11 @@ export default function App() {
 
       {error && <div className="error">⚠ {error}</div>}
 
-      {view === 'manager'
-        ? <ManagerView data={managerData} onOpenMember={openMember} />
-        : <MemberView data={memberData} onComplete={complete} completing={completing} />}
+      {view === 'indexing'
+        ? <IndexingView onBack={() => setView('manager')} />
+        : view === 'manager'
+          ? <ManagerView data={managerData} onOpenMember={openMember} onAddTicket={addTicket} onReorder={reorder} onOpenIndexing={() => setView('indexing')} />
+          : <MemberView data={memberData} onComplete={complete} completing={completing} />}
     </div>
   );
 }

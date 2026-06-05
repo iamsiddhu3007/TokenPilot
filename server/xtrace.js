@@ -15,6 +15,18 @@ const USER_ID = 'tokenpilot';
 const CONV_ID = 'tokenpilot-backlog';
 const APP_ID = 'tokenpilot';
 
+// XTrace's remote vector recall can stall (rate-limit / cold service). The SDK
+// has no built-in timeout, and an un-timed await here freezes the whole pipeline
+// because estimateTicket() calls searchMemory() once per ticket. Cap every remote
+// read so a slow XTrace degrades to local facts instead of hanging the request.
+const XTRACE_TIMEOUT_MS = Number(process.env.XTRACE_TIMEOUT_MS) || 4000;
+function withTimeout(promise, ms = XTRACE_TIMEOUT_MS) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`xtrace timeout after ${ms}ms`)), ms)),
+  ]);
+}
+
 let _client = null;
 function client() {
   if (!_client && HAS_XTRACE) {
@@ -77,7 +89,7 @@ export async function searchMemory(query) {
     .filter((f) => f.text.toLowerCase().includes(q) || (f.key && q.includes(f.key.toLowerCase())));
   if (!HAS_XTRACE) return local;
   try {
-    const res = await client().memories.search({ query, app_id: APP_ID, limit: 8 });
+    const res = await withTimeout(client().memories.search({ query, app_id: APP_ID, limit: 8 }));
     const remote = (res?.data || []).map((m) => ({
       id: m.id, text: m.text, key: null, value: null, type: m.type, source: 'xtrace',
     }));
@@ -109,7 +121,7 @@ export async function reconcile(key, newValue, text) {
 export async function seedTeamFacts(members) {
   if (!HAS_XTRACE || !members?.length) return { seeded: 0 };
   try {
-    const existing = await client().memories.search({ query: 'team engineer skilled budget', app_id: APP_ID, limit: 1 });
+    const existing = await withTimeout(client().memories.search({ query: 'team engineer skilled budget', app_id: APP_ID, limit: 1 }));
     if ((existing?.data || []).length) return { seeded: 0, skipped: true };
   } catch { /* fall through and seed */ }
   let seeded = 0;

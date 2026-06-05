@@ -65,9 +65,16 @@ export async function callModel(tier, prompt, { maxTokens = 800 } = {}) {
   const gatewayModel = GATEWAY_MODELS[tier] || GATEWAY_MODELS.mid;
   const url = `${GATEWAY_BASE}/${APP_ID}/chat/completions`;
 
+  // Cap the call so a stalled gateway falls back to simulate instead of hanging
+  // the request forever (fetch has no default timeout).
+  const timeoutMs = Number(process.env.GATEWAY_TIMEOUT_MS) || 30000;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+
   try {
     const res = await fetch(url, {
       method: 'POST',
+      signal: ctrl.signal,
       headers: {
         Authorization: `Bearer ${process.env.BUTTERBASE_GATEWAY_KEY}`,
         'Content-Type': 'application/json',
@@ -98,8 +105,11 @@ export async function callModel(tier, prompt, { maxTokens = 800 } = {}) {
       costUSD: estimateCost(tier, inputTokens, outputTokens),
     };
   } catch (err) {
+    const reason = err?.name === 'AbortError' ? `gateway timeout ${timeoutMs}ms` : 'gateway error';
     console.warn('[gateway] call failed → simulating:', err?.message || err);
-    return simulate(tier, model, prompt, maxTokens, 'gateway error');
+    return simulate(tier, model, prompt, maxTokens, reason);
+  } finally {
+    clearTimeout(timer);
   }
 }
 
