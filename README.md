@@ -64,11 +64,13 @@ input/codebase/  +  input/jira/ (tickets)
 
 | Tier | Model | When |
 |---|---|---|
-| `flagship` | `claude-opus-4-8` | P0 / heavy reasoning |
-| `mid` | `claude-sonnet-4-6` | moderate work |
-| `cheap` | `claude-haiku-4-5` | grunt work / once context is established |
+| `flagship` | `claude-opus-4.8` | P0 / heavy reasoning |
+| `mid` | `claude-sonnet-4.6` | moderate work |
+| `cheap` | `claude-haiku-4.5` | grunt work / once context is established |
 
 The actual model call goes through the **Butterbase AI Gateway** (`server/gateway.js`). Switching models = changing one string — that's the whole point.
+
+> **There are two gateway paths, both Butterbase.** (1) The `/work` route's real model call goes direct through `gateway.js` using `BUTTERBASE_GATEWAY_KEY` + `BUTTERBASE_APP_ID`. (2) The RocketRide estimator pipeline's LLM node calls Butterbase through `ROCKETRIDE_GATEWAY_URL` (the base URL embeds the app id) + `ROCKETRIDE_GATEWAY_KEY`. Same gateway, two callers.
 
 ## The two dashboards
 
@@ -77,7 +79,9 @@ The actual model call goes through the **Butterbase AI Gateway** (`server/gatewa
 | **Manager** | Team lead | Each member's **current usage** + load, the team budget, and the team‑wide prioritized queue. **No per‑event history** — the "now." |
 | **Member** | Individual | That member's usage, their Agent‑2 **recommendations** (priority/cost/effort, with a *Work* action), and their **full history** of worked tickets. |
 
-Switch with the **Manager / Member** toggle (top right); click any member card in the manager view to jump to their dashboard.
+Switch with the **Manager / Member** toggle (top right); click any member card in the manager view to jump to their dashboard. The manager view can also **add a ticket** and **drag-reorder** the queue (persisted as `manualRank`).
+
+A third **Agent 1 · Codebase Intelligence** page (`web/src/views/IndexingView.jsx`) opens from the manager view's *Codebase* stat: it shows how many files Agent 1 indexed from `input/codebase/` and, per ticket, the related files, change surface, touched areas, and cross-module/test signals.
 
 ---
 
@@ -86,7 +90,7 @@ Switch with the **Manager / Member** toggle (top right); click any member card i
 - **Node.js ≥ 18** (the project uses native `fetch` and ESM). Tested on Node 26.
 - **npm** (bundled with Node).
 - Optional, for full live mode:
-  - **Docker** — to run the self‑hosted RocketRide engine.
+  - The **RocketRide VS Code extension** — it starts the local RocketRide engine (`connectionMode: local`) that runs the estimator pipeline. (No Docker needed.)
   - A **Butterbase** account (DB + AI Gateway), an **XTrace** account (memory), and a **Photon** project (messaging). All have graceful fallbacks, so the app runs end‑to‑end without them.
   - **`gh`** (GitHub CLI) — only if you want to pull a repo's issues as tickets the way the demo does.
 
@@ -121,18 +125,17 @@ Open **http://localhost:5173**. That's the whole app.
 Copy `.env.example` → `.env` and fill what you have. Every variable, what it's for, and where to get it:
 
 ### RocketRide — the pipeline runtime
+The SDK (`rocketride`) connects to the **local engine started by the VS Code extension** (`connectionMode: local`) over its DAP WebSocket and runs the estimator pipeline (`pipeline/estimate.pipe`). The LLM node inside that pipeline calls the Butterbase gateway. If the engine is down, `server/rocketrideClient.js` returns `null` and `rocketride.js` falls back to the XTrace‑grounded heuristic.
+
 | Variable | Required? | Notes |
 |---|---|---|
-| `ROCKETRIDE_API_KEY` | Only for **RocketRide Cloud** | Leave **blank** for self‑hosted. |
-| `ROCKETRIDE_ENDPOINT` | Yes | Self‑hosted: `ws://localhost:5565`. Cloud: `https://api.rocketride.ai`. |
+| `ROCKETRIDE_URI` | Yes | `<host:port>` of the local engine, e.g. `localhost:60311`. **The port is ephemeral** — if the extension restarts the engine, find the new one with `lsof -nP -iTCP -sTCP:LISTEN \| grep engine` and update this. |
+| `ROCKETRIDE_APIKEY` | Yes | The OSS engine accepts any non‑empty key (the extension starts it without one). Use `local`. (Read by the SDK.) |
+| `ROCKETRIDE_API_KEY` | No | Only for **RocketRide Cloud**; leave blank for local. |
+| `ROCKETRIDE_GATEWAY_URL` | For real estimates | OpenAI‑compatible base for the pipeline's LLM node, e.g. `https://api.butterbase.ai/v1/<app_id>`. |
+| `ROCKETRIDE_GATEWAY_KEY` | For real estimates | `bb_sk_…` (the same Butterbase key). |
 
-RocketRide is open‑source. Self‑host the engine with Docker (no key needed):
-```bash
-docker pull ghcr.io/rocketride-org/rocketride-engine:latest
-docker create --name rocketride-engine -p 5565:5565 ghcr.io/rocketride-org/rocketride-engine:latest
-docker start rocketride-engine
-```
-Build your `.pipe` pipeline visually with the **RocketRide VS Code extension**.
+Build/edit the `.pipe` pipeline visually with the **RocketRide VS Code extension**, which also starts the engine.
 
 ### Butterbase — backend + auth + AI Gateway
 | Variable | Required? | Notes |
@@ -142,16 +145,18 @@ Build your `.pipe` pipeline visually with the **RocketRide VS Code extension**.
 | `BUTTERBASE_GATEWAY_KEY` | For real model calls | Bearer token for the AI Gateway. |
 | `BUTTERBASE_APP_ID` | For real model calls | The `{app_id}` in `https://api.butterbase.ai/v1/{app_id}/chat/completions`. |
 | `BUTTERBASE_GATEWAY_URL` | No | Override gateway base (default `https://api.butterbase.ai/v1`). |
-| `BUTTERBASE_MODEL_FLAGSHIP` / `_MID` / `_CHEAP` | No | Override the gateway model slugs (default `anthropic/claude-opus-4-8`, `…sonnet-4-6`, `…haiku-4-5`). |
+| `BUTTERBASE_MODEL_FLAGSHIP` / `_MID` / `_CHEAP` | No | Override the gateway model slugs (default `anthropic/claude-opus-4.8`, `…sonnet-4.6`, `…haiku-4.5`). |
 
 The gateway is **OpenAI‑compatible**: `POST /v1/{app_id}/chat/completions`, `Authorization: Bearer …`, response in `choices[0].message.content` with `usage.{prompt,completion}_tokens`.
 
 ### XTrace — memory layer
 | Variable | Required? | Notes |
 |---|---|---|
-| `XTRACE_API_KEY` | Yes | `xtk_…` from app.xtrace.ai. |
-| `XTRACE_ENDPOINT` | Yes | `https://api.production.xtrace.ai`. |
-| `XTRACE_ORG_ID` | For SDK wiring | Org ID from app.xtrace.ai settings (needed by `@xtraceai/memory`). |
+| `XTRACE_API_KEY` | For live memory | `xtk_…` from app.xtrace.ai. |
+| `XTRACE_ORG_ID` | For live memory | Org ID from app.xtrace.ai settings — **required** alongside the key for `@xtraceai/memory` to go live. |
+| `XTRACE_ENDPOINT` | No | Override the SDK base URL (default `https://api.production.xtrace.ai`). Optional. |
+
+Both `XTRACE_API_KEY` **and** `XTRACE_ORG_ID` must be set for `xtrace: connected`; otherwise it uses the local in‑memory mirror.
 
 ### Photon / Spectrum — messaging
 | Variable | Required? | Notes |
@@ -255,15 +260,18 @@ curl -s -X POST http://localhost:3001/chat -H 'Content-Type: application/json' \
   -d '{"text":"what should I work on next?"}'
 ```
 
-A healthy boot logs:
+A healthy boot logs something like (exact statuses depend on which keys you've set — every platform is independent):
 ```
 TokenPilot server on :3001
 [ingest] loaded 16 tickets from input/jira (1 file)
+[rocketride] local engine connected; estimator pipeline live (…).
 [photon] Spectrum connected (iMessage provider). Listening for inbound messages.
-Platform status → { butterbase: 'in-memory-fallback', auth: 'butterbase-auth',
-  rocketride: 'heuristic-fallback', analyzer: 'codebase-indexed',
-  gateway: 'simulated-fallback', xtrace: 'connected', photon: 'connected' }
+[xtrace] seeded 4 team facts
+Platform status → { butterbase: 'connected', auth: 'butterbase-auth',
+  rocketride: 'engine-connected', analyzer: 'codebase-indexed',
+  gateway: 'connected', xtrace: 'connected', photon: 'connected' }
 ```
+Each platform reports `connected` (or its specific live label) when its keys are present, and a `*-fallback` otherwise — e.g. `rocketride: 'heuristic-fallback'` if the local engine isn't running, `gateway: 'simulated-fallback'` without `BUTTERBASE_APP_ID` + `BUTTERBASE_GATEWAY_KEY`, `analyzer: 'text-only-fallback'` if no codebase is pasted.
 
 ## Features
 
@@ -283,13 +291,15 @@ Platform status → { butterbase: 'in-memory-fallback', auth: 'butterbase-auth',
 |-------|---------|
 | `GET /health` | per‑platform + per‑agent status (live vs. fallback) |
 | `GET /tickets` | raw normalized tickets |
+| `POST /tickets` | manager: create a ticket (optionally pre‑assigned) |
+| `POST /reorder` | manager: persist a manual drag‑reorder (`manualRank`) |
 | `GET /board` | tickets grouped/ordered for the board |
 | `GET /intel` | **Agent 1** output — codebase intel per ticket |
 | `GET /recommendations` | **Agent 1 + 2** — full pipeline result |
 | `GET /budget` | current budget (period, total, consumed) |
 | `GET /team` | **Manager dashboard** — usage per member + team queue (no history) |
 | `GET /team/:id` | **Member dashboard** — usage + history + their recommendations |
-| `POST /work/:id` | estimate → route → call model via gateway → bill → attribute to a member → maybe push |
+| `POST /work/:id` | (auth‑gated) estimate → route → call model via gateway → bill → attribute to a member → push on completion |
 | `POST /chat` | the agent brain (what Photon delivers to iMessage) |
 | `GET /memory` | XTrace beliefs + version history (pass `?q=` to search) |
 | `POST /simulate-model-update` | XTrace reconciliation demo kicker |
@@ -297,17 +307,17 @@ Platform status → { butterbase: 'in-memory-fallback', auth: 'butterbase-auth',
 
 ## Platform integration status
 
-`/health` reports each platform as `connected` or a `*-fallback`. Current wiring:
+`/health` reports each platform as `connected` (or its specific live label) or a `*-fallback`. **All four platforms are now wired to their real SDK/API** — each flips from fallback to live as soon as its keys (or the local engine) are present:
 
-| Platform | Keys configured | Code wired | Live now? | To go fully live |
-|---|---|---|---|---|
-| **Photon (iMessage)** | ✅ | ✅ real Spectrum client | ✅ **connected** | set `PHOTON_TARGET` for proactive pushes |
-| **XTrace** | ✅ key + endpoint | ⚠️ status `connected`, but read/write/supersede still use the in‑memory store | partial | wire `server/xtrace.js` to the `@xtraceai/memory` SDK (needs `XTRACE_ORG_ID`) |
-| **Butterbase — Gateway** | ⏳ needs `GATEWAY_KEY` + `APP_ID` | ✅ OpenAI‑compatible call in `gateway.js` | simulated | add the two env vars → flips to real Claude |
-| **Butterbase — DB/auth** | ✅ API key + MCP server | ⏳ DB still in‑memory | fallback | add `PROJECT_URL` + wire `butterbase.js` to real tables |
-| **RocketRide** | endpoint set (self‑hosted) | ⏳ heuristics, SDK not wired | fallback | start the Docker engine + wire `rocketride.js` to the SDK |
+| Platform | Code wired | Flips to live when… | Fallback when absent |
+|---|---|---|---|
+| **Photon (iMessage)** | ✅ real Spectrum client (`photon.js`) | `PHOTON_PROJECT_ID` + `PHOTON_SECRET` set (`PHOTON_TARGET` for proactive pushes) | console fallback (`/chat` still exercises the inbound flow) |
+| **XTrace** | ✅ real `@xtraceai/memory` SDK (`xtrace.js`) — ingest + vector search + reconcile, with a local mirror for the beliefs UI | `XTRACE_API_KEY` + `XTRACE_ORG_ID` set | `in-memory-fallback` (local facts only) |
+| **Butterbase — Gateway** | ✅ OpenAI‑compatible call (`gateway.js`) | `BUTTERBASE_GATEWAY_KEY` + `BUTTERBASE_APP_ID` set | `simulated-fallback` (canned model response) |
+| **Butterbase — DB/auth** | ✅ live REST data API (`butterbase.js`) — tickets/budget/usage/history | `BUTTERBASE_API_KEY` + `BUTTERBASE_PROJECT_URL` set | `in-memory-fallback` (`.fallback-store.json`) |
+| **RocketRide** | ✅ real SDK → local engine, runs `pipeline/estimate.pipe` (`rocketrideClient.js`) | the VS Code extension's local engine is running + `ROCKETRIDE_URI` points at it | `heuristic-fallback` (XTrace‑grounded estimate) |
 
-> The app is fully usable in every "fallback" state — these are upgrades, not blockers.
+> The app is fully usable in every "fallback" state — these are graceful degradations, not blockers. The wiring is done; the only thing standing between a fallback and "live" is the corresponding key/engine.
 
 ## Messaging (Photon / iMessage)
 
@@ -331,11 +341,13 @@ Platform status → { butterbase: 'in-memory-fallback', auth: 'butterbase-auth',
 | `server/team.js` | roster + assembles the manager & member dashboards |
 | `server/butterbase.js` | tickets, budget, **per‑member usage + history** |
 | `server/gateway.js` | Butterbase AI Gateway — model switching (OpenAI‑compatible) |
-| `server/xtrace.js` | XTrace memory: write/search + reconciliation |
-| `server/rocketride.js` | estimate / route / order heuristics (→ real pipeline) |
+| `server/xtrace.js` | XTrace memory: real `@xtraceai/memory` ingest/search + reconciliation (local mirror) |
+| `server/rocketride.js` | estimate / route / order — calls the real engine, heuristic fallback |
+| `server/rocketrideClient.js` | real RocketRide SDK: connects the local engine, runs the estimator pipeline |
+| `pipeline/estimate.pipe` · `tokenpilot_pipeline.json` | the live `.pipe` estimator pipeline · the full design definition |
 | `server/photon.js` · `auth.js` | iMessage delivery (Spectrum) · Butterbase auth |
-| `web/src/views/ManagerView.jsx` · `MemberView.jsx` | the two dashboards |
-| `data/team_members.json` · `data/seed_tickets.json` | roster · seed backlog |
+| `web/src/views/ManagerView.jsx` · `MemberView.jsx` · `IndexingView.jsx` | manager + member dashboards · Agent‑1 codebase‑intel page |
+| `data/team_members.json` · `data/seed_tickets.json` | roster (4 members) · seed backlog (8 tickets) |
 
 ## Troubleshooting
 
@@ -348,13 +360,18 @@ Platform status → { butterbase: 'in-memory-fallback', auth: 'butterbase-auth',
 
 ## Roadmap / upgrades
 
-These are the next steps to take each platform from fallback → fully live (the app works today without them):
+All four platforms are now wired to their real SDK/API; each goes live the moment its keys (or the local engine) are present. Done:
 
-- [ ] **Butterbase DB** — wire `butterbase.js` to real tables (tickets, budget, usage, history); add `PROJECT_URL`.
-- [ ] **Butterbase Gateway** — add `GATEWAY_KEY` + `APP_ID` to make real Claude calls; confirm model slugs.
-- [ ] **XTrace** — wire `xtrace.js` to the `@xtraceai/memory` SDK so facts/episodes and supersede/reconcile hit the real platform.
-- [ ] **RocketRide** — run the Docker engine and wire `rocketride.js` to the SDK pipeline.
-- [ ] **Photon** — set `PHOTON_TARGET` for proactive pushes; optionally add a Slack provider.
-- [ ] **Auth** — replace the demo auto‑session with real Butterbase auth (signup/login/session).
+- [x] **Butterbase DB** — `butterbase.js` hits the live REST data API (tickets, budget, usage, history); set `PROJECT_URL` to enable.
+- [x] **Butterbase Gateway** — real OpenAI‑compatible Claude calls; set `GATEWAY_KEY` + `APP_ID` to enable.
+- [x] **XTrace** — `xtrace.js` ingests/searches via `@xtraceai/memory`; reconcile supersedes contradicted beliefs. Set `XTRACE_API_KEY` + `XTRACE_ORG_ID`.
+- [x] **RocketRide** — `rocketrideClient.js` runs `pipeline/estimate.pipe` on the local engine; start the VS Code extension's engine and set `ROCKETRIDE_URI`.
+- [x] **Photon** — real Spectrum iMessage client; pushes on every completion. Set `PHOTON_TARGET` for the recipient.
+
+Still open:
+
+- [ ] **Auth** — replace the demo auto‑session in `auth.js` with real Butterbase signup/login/session.
+- [ ] **Slack provider** — optionally add Slack alongside iMessage in `photon.js`.
+- [ ] **Model slugs** — confirm the gateway model slugs match your Butterbase catalog (override via `BUTTERBASE_MODEL_FLAGSHIP/_MID/_CHEAP`).
 
 Background and key‑setup notes live in `hackathon_build_plan.md` and `tokenpilot_keys_setup.md`.

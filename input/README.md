@@ -38,5 +38,6 @@ tickets) instead.
    effort/time, model tier, suggested assignee).
 3. The **Manager** and **Member** dashboards render the result.
 
-No restart needed for data swaps beyond re-running ingest / refreshing the board —
-see the root `README.md`.
+The server only auto-loads tickets when its store is empty, so to swap in fresh
+data clear the local store and restart: `rm -f .fallback-store.json && npm start`
+(see the root `README.md` troubleshooting section).
