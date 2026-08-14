@@ -71,31 +71,23 @@ export async function saveProviderConfig(
   const provider = "anthropic";
   const model = String(formData.get("model") ?? "").trim() || DEFAULT_CLAUDE_MODEL;
   const apiKey = String(formData.get("apiKey") ?? "").trim();
-  if (!apiKey) return { error: "Claude API key is required" };
-
   const nvidiaApiKey = String(formData.get("nvidiaApiKey") ?? "").trim();
   const nvidiaEmbedModel = String(formData.get("nvidiaEmbedModel") ?? "nvidia/nv-embedqa-e5-v5").trim();
 
-  const encApiKey = encrypt(apiKey);
-  const encNvidiaApiKey = nvidiaApiKey ? encrypt(nvidiaApiKey) : undefined;
+  // Load existing config so we can keep keys that weren't re-entered
+  const existing = await prisma.providerConfig.findUnique({ where: { projectId } });
+
+  if (!apiKey && !existing?.encApiKey) return { error: "Claude API key is required" };
+
+  const encApiKey = apiKey ? encrypt(apiKey) : existing!.encApiKey;
+  const encNvidiaApiKey = nvidiaApiKey
+    ? encrypt(nvidiaApiKey)
+    : (existing?.encNvidiaApiKey ?? null);
 
   await prisma.providerConfig.upsert({
     where: { projectId },
-    create: {
-      projectId,
-      provider,
-      model,
-      encApiKey,
-      encNvidiaApiKey: encNvidiaApiKey ?? null,
-      nvidiaEmbedModel,
-    },
-    update: {
-      provider,
-      model,
-      encApiKey,
-      ...(encNvidiaApiKey && { encNvidiaApiKey }),
-      nvidiaEmbedModel,
-    },
+    create: { projectId, provider, model, encApiKey, encNvidiaApiKey, nvidiaEmbedModel },
+    update: { provider, model, encApiKey, encNvidiaApiKey, nvidiaEmbedModel },
   });
 
   revalidatePath(`/projects/${projectId}/settings`);
