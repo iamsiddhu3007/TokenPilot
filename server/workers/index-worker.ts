@@ -1,5 +1,4 @@
 import "dotenv/config";
-import { Octokit } from "octokit";
 import { prisma } from "../db-client";
 import { getChannel, QUEUES } from "../queue/connection";
 import { runIndexer } from "../agents/indexer";
@@ -8,6 +7,17 @@ import { decrypt } from "../../lib/crypto";
 interface IndexPayload {
   jobId: string;
   projectId: string;
+}
+
+async function githubFetch(url: string, pat?: string) {
+  const headers: Record<string, string> = {
+    Accept: "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+  };
+  if (pat) headers.Authorization = `Bearer ${pat}`;
+  const res = await fetch(url, { headers });
+  if (!res.ok) throw new Error(`GitHub ${res.status}: ${await res.text()}`);
+  return res.json();
 }
 
 async function start() {
@@ -30,38 +40,26 @@ async function start() {
       }
 
       const pat = gh.encGithubPat ? decrypt(gh.encGithubPat) : undefined;
-      const octokit = new Octokit({ auth: pat });
+      const base = `https://api.github.com/repos/${gh.owner}/${gh.name}`;
 
-      // Fetch root-level source files
-      const { data: contents } = await octokit.request("GET /repos/{owner}/{repo}/contents/{path}", {
-        owner: gh.owner,
-        repo: gh.name,
-        path: "",
-      });
+      const contents = await githubFetch(`${base}/contents/`, pat) as
+        { type: string; name: string; path: string; sha: string }[];
 
       const files = Array.isArray(contents)
-        ? contents.filter((f: { type: string; name: string }) =>
-            f.type === "file" && /\.(ts|tsx|js|jsx|py|md)$/.test(f.name),
-          )
+        ? contents.filter((f) => f.type === "file" && /\.(ts|tsx|js|jsx|py|md)$/.test(f.name))
         : [];
 
       for (const file of files.slice(0, 20)) {
         try {
-          const { data: fileData } = await octokit.request("GET /repos/{owner}/{repo}/contents/{path}", {
-            owner: gh.owner,
-            repo: gh.name,
-            path: file.path,
-          });
-          const content = Buffer.from(
-            (fileData as { content: string }).content,
-            "base64",
-          ).toString("utf8");
+          const fileData = await githubFetch(`${base}/contents/${file.path}`, pat) as
+            { content: string; sha: string };
+          const content = Buffer.from(fileData.content, "base64").toString("utf8");
 
           await runIndexer({
             projectId: payload.projectId,
             filePath: file.path,
             content,
-            sha: (fileData as { sha: string }).sha,
+            sha: fileData.sha,
             nvidiaApiKey: decrypt(cfg.encNvidiaApiKey!),
             nvidiaEmbedModel: cfg.nvidiaEmbedModel ?? "nvidia/nv-embedqa-e5-v5",
           });
