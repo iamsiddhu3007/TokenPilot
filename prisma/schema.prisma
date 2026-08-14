@@ -131,6 +131,17 @@ model GithubConnection {
   @@map("github_connection")
 }
 
+model FileSummary {
+  id        String   @id @default(uuid())
+  projectId String   @map("project_id")
+  filePath  String   @map("file_path")
+  summary   String
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([projectId, filePath])
+  @@map("file_summary")
+}
+
 // ── Agent pipeline tables ──────────────────────────────────────────────────────
 // priority: critical | high | medium | low
 // budgetTier: XS | S | M | L | XL

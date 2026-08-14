@@ -36,9 +36,12 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
 
       {gh?.owner && <SyncButton projectId={id} />}
 
-      <nav className="flex gap-3 text-sm">
+      <nav className="flex gap-3 text-sm flex-wrap">
         <Link href={`/projects/${id}/board`} className="rounded-md border border-black/10 px-3 py-1.5 hover:bg-black/5 dark:border-white/15 dark:hover:bg-white/10">
           Issue Board
+        </Link>
+        <Link href={`/projects/${id}/codebase`} className="rounded-md border border-black/10 px-3 py-1.5 hover:bg-black/5 dark:border-white/15 dark:hover:bg-white/10">
+          Codebase
         </Link>
         <Link href={`/projects/${id}/runs`} className="rounded-md border border-black/10 px-3 py-1.5 hover:bg-black/5 dark:border-white/15 dark:hover:bg-white/10">
           Agent Runs
