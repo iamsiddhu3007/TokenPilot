@@ -27,31 +27,37 @@ const runEstimator = traceable(
     let result: EstimateResult = { effortHours: 4, confidence: 0.5, rationale: "default estimate" };
 
     try {
-      // 1. Embed the issue text via NVIDIA
-      const embedClient = new OpenAI({ apiKey: opts.nvidiaApiKey, baseURL: NVIDIA_BASE_URL });
-      const issueText = `${opts.title}\n${opts.body ?? ""}`;
-      const embeddingRes = await embedClient.embeddings.create({
-        model: opts.nvidiaEmbedModel,
-        input: issueText,
-        encoding_format: "float",
-      });
-      const vector = embeddingRes.data[0].embedding;
+      // 1. Try to embed + retrieve similar code chunks (best-effort — skip if embeddings unavailable)
+      let context = "(no code context — embeddings not available)";
+      try {
+        const embedClient = new OpenAI({ apiKey: opts.nvidiaApiKey, baseURL: NVIDIA_BASE_URL, timeout: 30_000 });
+        const issueText = `${opts.title}\n${opts.body ?? ""}`;
+        const embeddingRes = await embedClient.embeddings.create({
+          model: opts.nvidiaEmbedModel,
+          input: issueText,
+          encoding_format: "float",
+        });
+        const vector = embeddingRes.data[0].embedding;
 
-      // 2. Find similar code chunks via pgvector
-      const similar = await prisma.$queryRawUnsafe<{ id: string; content: string; file_path: string }[]>(
-        `SELECT id, content, file_path FROM "code_chunk"
-         WHERE "project_id" = $1::uuid AND "embedding" IS NOT NULL
-         ORDER BY "embedding" <=> $2::vector
-         LIMIT 5`,
-        opts.projectId,
-        JSON.stringify(vector),
-      );
+        const similar = await prisma.$queryRawUnsafe<{ id: string; content: string; file_path: string }[]>(
+          `SELECT id, content, file_path FROM "code_chunk"
+           WHERE "project_id" = $1::uuid AND "embedding" IS NOT NULL
+           ORDER BY "embedding" <=> $2::vector
+           LIMIT 5`,
+          opts.projectId,
+          JSON.stringify(vector),
+        );
 
-      const context = similar.length
-        ? similar.map((s) => `// ${s.file_path}\n${s.content}`).join("\n---\n")
-        : "(no indexed code yet)";
+        if (similar.length) {
+          context = similar.map((s) => `// ${s.file_path}\n${s.content}`).join("\n---\n");
+        } else {
+          context = "(no indexed code yet)";
+        }
+      } catch (embedErr) {
+        console.warn("[estimator] embedding failed, estimating without code context:", (embedErr as Error).message);
+      }
 
-      // 3. LLM call — NVIDIA model or Claude
+      // 2. LLM call — always runs, even without code context
       const { text, promptTokens, completionTokens } = await callLLM({
         model: opts.model,
         nvidiaApiKey: opts.nvidiaApiKey,
