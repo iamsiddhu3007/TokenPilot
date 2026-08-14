@@ -1,20 +1,52 @@
 {
   "name": "tokenpilot",
-  "version": "0.1.0",
-  "description": "Autonomous cost-and-priority brain for your engineering backlog",
-  "type": "module",
+  "version": "0.3.0",
+  "private": true,
+  "description": "Multi-agent pipeline routing GitHub issues to Claude agents with LangSmith tracing",
   "scripts": {
-    "start": "node server/index.js",
-    "ingest": "node server/ingest.js",
-    "dev": "node --watch server/index.js"
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:push": "prisma db push",
+    "db:studio": "prisma studio",
+    "server:dev": "tsx watch server/index.ts",
+    "workers:dev": "concurrently \"tsx watch server/workers/intake-worker.ts\" \"tsx watch server/workers/priority-worker.ts\" \"tsx watch server/workers/index-worker.ts\" \"tsx watch server/workers/estimate-worker.ts\""
   },
   "dependencies": {
-    "@xtraceai/memory": "^0.2.1",
+    "@anthropic-ai/sdk": "^0.38.0",
+    "@octokit/app": "^16.1.2",
+    "@octokit/webhooks": "^14.2.0",
+    "@prisma/client": "^6.0.0",
+    "amqplib": "^0.10.5",
+    "better-auth": "^1.6.15",
     "cors": "^2.8.5",
-    "csv-parse": "^5.5.6",
     "dotenv": "^16.4.5",
-    "express": "^4.19.2",
-    "rocketride": "^1.2.0",
-    "spectrum-ts": "^1.18.0"
+    "express": "^4.21.2",
+    "langsmith": "^0.3.0",
+    "next": "^15.5.19",
+    "octokit": "^5.0.5",
+    "openai": "^4.67.3",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/amqplib": "^0.10.5",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "concurrently": "^9.0.0",
+    "eslint": "^9",
+    "eslint-config-next": "^15.5.19",
+    "prisma": "^6.0.0",
+    "tailwindcss": "^4",
+    "tsx": "^4.19.2",
+    "typescript": "^5"
   }
 }

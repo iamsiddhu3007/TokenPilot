@@ -1,0 +1,198 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Better Auth tables ─────────────────────────────────────────────────────────
+model User {
+  id              String    @id
+  name            String
+  email           String    @unique
+  emailVerified   Boolean   @default(false) @map("email_verified")
+  image           String?
+  username        String?   @unique
+  displayUsername String?   @map("display_username")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  sessions        Session[]
+  accounts        Account[]
+  ownedProjects   Project[]       @relation("ProjectOwner")
+  memberships     ProjectMember[]
+
+  @@map("user")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime @map("expires_at")
+  token     String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  ipAddress String?  @map("ip_address")
+  userAgent String?  @map("user_agent")
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String    @map("account_id")
+  providerId            String    @map("provider_id")
+  userId                String    @map("user_id")
+  accessToken           String?   @map("access_token")
+  refreshToken          String?   @map("refresh_token")
+  idToken               String?   @map("id_token")
+  accessTokenExpiresAt  DateTime? @map("access_token_expires_at")
+  refreshTokenExpiresAt DateTime? @map("refresh_token_expires_at")
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime @map("expires_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@map("verification")
+}
+
+// ── App tables ─────────────────────────────────────────────────────────────────
+model Project {
+  id               String            @id @default(uuid())
+  name             String
+  ownerId          String            @map("owner_id")
+  createdAt        DateTime          @default(now()) @map("created_at")
+  owner            User              @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  members          ProjectMember[]
+  providerConfig   ProviderConfig?
+  githubConnection GithubConnection?
+  issueJobs        IssueJob[]
+
+  @@map("project")
+}
+
+model ProjectMember {
+  id        String   @id @default(uuid())
+  projectId String   @map("project_id")
+  userId    String   @map("user_id")
+  role      String   @default("member")
+  addedAt   DateTime @default(now()) @map("added_at")
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId], name: "project_member_unique")
+  @@map("project_member")
+}
+
+// provider = "anthropic" (Claude). encApiKey = encrypted Claude key.
+// encNvidiaApiKey = encrypted NVIDIA key for embeddings. nvidiaEmbedModel = chosen model.
+model ProviderConfig {
+  id               String   @id @default(uuid())
+  projectId        String   @unique @map("project_id")
+  provider         String
+  model            String
+  encApiKey        String   @map("enc_api_key")
+  encNvidiaApiKey  String?  @map("enc_nvidia_api_key")
+  nvidiaEmbedModel String?  @map("nvidia_embed_model")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+  project          Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("provider_config")
+}
+
+model GithubConnection {
+  id             String   @id @default(uuid())
+  projectId      String   @unique @map("project_id")
+  installationId String   @map("installation_id")
+  owner          String?
+  name           String?
+  defaultBranch  String?  @map("default_branch")
+  createdAt      DateTime @default(now()) @map("created_at")
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("github_connection")
+}
+
+// ── Agent pipeline tables ──────────────────────────────────────────────────────
+// priority: critical | high | medium | low
+// budgetTier: XS | S | M | L | XL
+// status: pending | processing | done | failed
+model IssueJob {
+  id                String         @id @default(uuid())
+  projectId         String         @map("project_id")
+  githubIssueNumber Int            @map("github_issue_number")
+  title             String
+  body              String?
+  priority          String?
+  budgetTier        String?        @map("budget_tier")
+  status            String         @default("pending")
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
+  project           Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  agentRuns         AgentRun[]
+  estimate          IssueEstimate?
+
+  @@map("issue_job")
+}
+
+// agentType: priority_router | indexer | estimator
+// status: running | success | failed
+model AgentRun {
+  id               String    @id @default(uuid())
+  issueJobId       String    @map("issue_job_id")
+  agentType        String    @map("agent_type")
+  langsmithRunId   String?   @map("langsmith_run_id")
+  promptTokens     Int?      @map("prompt_tokens")
+  completionTokens Int?      @map("completion_tokens")
+  costUsd          Float?    @map("cost_usd")
+  status           String    @default("running")
+  startedAt        DateTime  @default(now()) @map("started_at")
+  finishedAt       DateTime? @map("finished_at")
+  issueJob         IssueJob  @relation(fields: [issueJobId], references: [id], onDelete: Cascade)
+
+  @@map("agent_run")
+}
+
+// embedding column is vector(1024) — added via raw SQL migration, not tracked by Prisma
+model CodeChunk {
+  id         String   @id @default(uuid())
+  projectId  String   @map("project_id")
+  filePath   String   @map("file_path")
+  chunkIndex Int      @map("chunk_index")
+  content    String
+  sha        String?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@unique([projectId, filePath, chunkIndex])
+  @@map("code_chunk")
+}
+
+model IssueEstimate {
+  id            String   @id @default(uuid())
+  issueJobId    String   @unique @map("issue_job_id")
+  effortHours   Float    @map("effort_hours")
+  confidence    Float
+  rationale     String?
+  similarChunks String[] @map("similar_chunks")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  issueJob      IssueJob @relation(fields: [issueJobId], references: [id], onDelete: Cascade)
+
+  @@map("issue_estimate")
+}

@@ -1,0 +1,56 @@
+# Local dev infrastructure for TokenPilot Phase 0.
+#   docker compose up -d
+# Postgres ships with the pgvector extension (needed in Phase 1 for embeddings).
+# LiteLLM is the BYOK gateway — teams' provider keys are passed per request.
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: tokenpilot-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tokenpilot
+      POSTGRES_PASSWORD: tokenpilot
+      POSTGRES_DB: tokenpilot
+    ports:
+      - "5432:5432"
+    volumes:
+      - tokenpilot_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tokenpilot -d tokenpilot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    container_name: tokenpilot-litellm
+    restart: unless-stopped
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    environment:
+      LITELLM_MASTER_KEY: sk-tokenpilot-master
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml:ro
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: tokenpilot-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: tokenpilot
+      RABBITMQ_DEFAULT_PASS: tokenpilot
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - tokenpilot_rabbitmq:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  tokenpilot_pgdata:
+  tokenpilot_rabbitmq:

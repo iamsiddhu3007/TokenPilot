@@ -1,16 +1,21 @@
 node_modules/
 .env
+.env.local
 .claude/settings.local.json
 .mcp.json
-.fallback-store.json
-web/node_modules/
-web/dist/
 *.log
 
-# Held input — paste codebase + jira tickets here; keep the contents out of git
-input/codebase/*
-input/jira/*
-!input/codebase/.gitkeep
-!input/jira/.gitkeep
-!input/README.md
+# Next.js / build output (Phase 0+)
+.next/
+dist/
+build/
+out/
+
+# Local LLM/coding-agent history (stored client-side, never committed)
+.tokenpilot-history/
+
+# Next.js / TS
+next-env.d.ts
+*.tsbuildinfo
+.vercel
 .rocketride/
