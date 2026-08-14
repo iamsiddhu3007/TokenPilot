@@ -14,7 +14,7 @@ export async function testLLM(opts: {
 
   if (isClaude) {
     if (!opts.claudeApiKey) throw new Error("Claude model selected but no Claude API key saved");
-    const client = new Anthropic({ apiKey: opts.claudeApiKey });
+    const client = new Anthropic({ apiKey: opts.claudeApiKey, timeout: 30_000 });
     const msg = await client.messages.create({
       model: opts.model,
       max_tokens: 16,
@@ -23,7 +23,11 @@ export async function testLLM(opts: {
     return msg.content[0].type === "text" ? msg.content[0].text.trim() : "";
   }
 
-  const client = new OpenAI({ apiKey: opts.nvidiaApiKey, baseURL: NVIDIA_BASE_URL });
+  const client = new OpenAI({
+    apiKey: opts.nvidiaApiKey,
+    baseURL: NVIDIA_BASE_URL,
+    timeout: 30_000,
+  });
   const completion = await client.chat.completions.create({
     model: opts.model,
     messages: [{ role: "user", content: "Reply with one word: working" }],

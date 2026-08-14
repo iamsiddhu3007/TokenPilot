@@ -21,7 +21,7 @@ export async function callLLM(opts: {
   const isClaude = opts.model.toLowerCase().startsWith("claude");
 
   if (isClaude && opts.claudeApiKey) {
-    const client = new Anthropic({ apiKey: opts.claudeApiKey });
+    const client = new Anthropic({ apiKey: opts.claudeApiKey, timeout: 60_000 });
     const msg = await client.messages.create({
       model: opts.model,
       max_tokens: opts.maxTokens ?? 512,
@@ -37,7 +37,7 @@ export async function callLLM(opts: {
   }
 
   // NVIDIA (or any OpenAI-compatible) path
-  const client = new OpenAI({ apiKey: opts.nvidiaApiKey, baseURL: NVIDIA_BASE_URL });
+  const client = new OpenAI({ apiKey: opts.nvidiaApiKey, baseURL: NVIDIA_BASE_URL, timeout: 60_000 });
   const completion = await client.chat.completions.create({
     model: opts.model,
     messages: opts.messages,
