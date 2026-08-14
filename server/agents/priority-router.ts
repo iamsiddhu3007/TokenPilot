@@ -1,6 +1,6 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { traceable } from "../tracing/langsmith";
 import { prisma } from "../db-client";
+import { callLLM } from "../utils/llm";
 
 type PriorityResult = {
   priority: "critical" | "high" | "medium" | "low";
@@ -13,25 +13,22 @@ const runPriorityRouter = traceable(
     issueJobId: string;
     title: string;
     body: string;
-    apiKey: string;
     model: string;
+    nvidiaApiKey: string;
+    claudeApiKey?: string | null;
   }): Promise<PriorityResult> => {
-    const client = new Anthropic({ apiKey: opts.apiKey });
-
-    await prisma.agentRun.create({
+    const runRecord = await prisma.agentRun.create({
       data: { issueJobId: opts.issueJobId, agentType: "priority_router", status: "running" },
     });
 
     let result: PriorityResult = { priority: "medium", budgetTier: "M", rationale: "default" };
-    let runRecord = await prisma.agentRun.findFirst({
-      where: { issueJobId: opts.issueJobId, agentType: "priority_router", status: "running" },
-      orderBy: { startedAt: "desc" },
-    });
 
     try {
-      const message = await client.messages.create({
+      const { text, promptTokens, completionTokens } = await callLLM({
         model: opts.model,
-        max_tokens: 300,
+        nvidiaApiKey: opts.nvidiaApiKey,
+        claudeApiKey: opts.claudeApiKey,
+        maxTokens: 300,
         messages: [
           {
             role: "user",
@@ -41,36 +38,26 @@ const runPriorityRouter = traceable(
 XS=<2h, S=2-4h, M=4-8h, L=8-16h, XL=>16h
 
 Title: ${opts.title}
-Body: ${opts.body ?? "(no body)"}`,
+Body: ${opts.body || "(no body)"}`,
           },
         ],
       });
 
-      const text = message.content[0].type === "text" ? message.content[0].text.trim() : "{}";
       try {
         result = JSON.parse(text) as PriorityResult;
       } catch {
         // keep default if parse fails
       }
 
-      if (runRecord) {
-        await prisma.agentRun.update({
-          where: { id: runRecord.id },
-          data: {
-            status: "success",
-            promptTokens: message.usage.input_tokens,
-            completionTokens: message.usage.output_tokens,
-            finishedAt: new Date(),
-          },
-        });
-      }
+      await prisma.agentRun.update({
+        where: { id: runRecord.id },
+        data: { status: "success", promptTokens, completionTokens, finishedAt: new Date() },
+      });
     } catch (err) {
-      if (runRecord) {
-        await prisma.agentRun.update({
-          where: { id: runRecord.id },
-          data: { status: "failed", finishedAt: new Date() },
-        });
-      }
+      await prisma.agentRun.update({
+        where: { id: runRecord.id },
+        data: { status: "failed", finishedAt: new Date() },
+      });
       throw err;
     }
 

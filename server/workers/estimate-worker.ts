@@ -33,9 +33,9 @@ async function start() {
         title: payload.title,
         body: payload.body ?? "",
         projectId: payload.projectId,
-        claudeApiKey: decrypt(cfg.encApiKey),
-        claudeModel: cfg.model,
+        model: cfg.model,
         nvidiaApiKey: decrypt(cfg.encNvidiaApiKey),
+        claudeApiKey: cfg.encApiKey ? decrypt(cfg.encApiKey) : null,
         nvidiaEmbedModel: cfg.nvidiaEmbedModel ?? "nvidia/nv-embedqa-e5-v5",
       });
 

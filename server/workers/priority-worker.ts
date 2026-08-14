@@ -23,8 +23,8 @@ async function start() {
       console.log(`[priority] issue #${payload.issueNumber}`);
 
       const cfg = await prisma.providerConfig.findUnique({ where: { projectId: payload.projectId } });
-      if (!cfg) {
-        console.warn(`[priority] no provider config for project ${payload.projectId}`);
+      if (!cfg?.encNvidiaApiKey) {
+        console.warn(`[priority] no NVIDIA key for project ${payload.projectId}`);
         channel.nack(msg, false, false);
         return;
       }
@@ -33,11 +33,11 @@ async function start() {
         issueJobId: payload.jobId,
         title: payload.title,
         body: payload.body ?? "",
-        apiKey: decrypt(cfg.encApiKey),
         model: cfg.model,
+        nvidiaApiKey: decrypt(cfg.encNvidiaApiKey),
+        claudeApiKey: cfg.encApiKey ? decrypt(cfg.encApiKey) : null,
       });
 
-      // Route to estimator after priority is set
       publish(channel, QUEUES.ESTIMATE, payload);
       channel.ack(msg);
     } catch (err) {

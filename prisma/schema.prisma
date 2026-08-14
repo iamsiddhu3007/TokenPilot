@@ -99,14 +99,15 @@ model ProjectMember {
   @@map("project_member")
 }
 
-// provider = "anthropic" (Claude). encApiKey = encrypted Claude key.
-// encNvidiaApiKey = encrypted NVIDIA key for embeddings. nvidiaEmbedModel = chosen model.
+// model = LLM model (any NVIDIA model, or claude-* if encApiKey is set).
+// encNvidiaApiKey = required for embeddings + free NVIDIA LLMs.
+// encApiKey = optional Claude key (only needed for claude-* models).
 model ProviderConfig {
   id               String   @id @default(uuid())
   projectId        String   @unique @map("project_id")
-  provider         String
-  model            String
-  encApiKey        String   @map("enc_api_key")
+  provider         String   @default("nvidia")
+  model            String   @default("meta/llama-3.3-70b-instruct")
+  encApiKey        String?  @map("enc_api_key")
   encNvidiaApiKey  String?  @map("enc_nvidia_api_key")
   nvidiaEmbedModel String?  @map("nvidia_embed_model")
   createdAt        DateTime @default(now()) @map("created_at")

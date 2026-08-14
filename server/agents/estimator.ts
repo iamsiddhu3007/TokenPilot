@@ -1,7 +1,7 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { OpenAI } from "openai";
+import OpenAI from "openai";
 import { traceable } from "../tracing/langsmith";
 import { prisma } from "../db-client";
+import { callLLM, NVIDIA_BASE_URL } from "../utils/llm";
 
 type EstimateResult = {
   effortHours: number;
@@ -15,30 +15,22 @@ const runEstimator = traceable(
     title: string;
     body: string;
     projectId: string;
-    claudeApiKey: string;
-    claudeModel: string;
+    model: string;
     nvidiaApiKey: string;
+    claudeApiKey?: string | null;
     nvidiaEmbedModel: string;
   }): Promise<EstimateResult> => {
-    await prisma.agentRun.create({
+    const runRecord = await prisma.agentRun.create({
       data: { issueJobId: opts.issueJobId, agentType: "estimator", status: "running" },
-    });
-
-    const runRecord = await prisma.agentRun.findFirst({
-      where: { issueJobId: opts.issueJobId, agentType: "estimator", status: "running" },
-      orderBy: { startedAt: "desc" },
     });
 
     let result: EstimateResult = { effortHours: 4, confidence: 0.5, rationale: "default estimate" };
 
     try {
-      // 1. Embed the issue text
-      const embed = new OpenAI({
-        apiKey: opts.nvidiaApiKey,
-        baseURL: "https://integrate.api.nvidia.com/v1",
-      });
+      // 1. Embed the issue text via NVIDIA
+      const embedClient = new OpenAI({ apiKey: opts.nvidiaApiKey, baseURL: NVIDIA_BASE_URL });
       const issueText = `${opts.title}\n${opts.body ?? ""}`;
-      const embeddingRes = await embed.embeddings.create({
+      const embeddingRes = await embedClient.embeddings.create({
         model: opts.nvidiaEmbedModel,
         input: issueText,
         encoding_format: "float",
@@ -55,15 +47,16 @@ const runEstimator = traceable(
         JSON.stringify(vector),
       );
 
-      // 3. Claude call with retrieved context
-      const client = new Anthropic({ apiKey: opts.claudeApiKey });
       const context = similar.length
         ? similar.map((s) => `// ${s.file_path}\n${s.content}`).join("\n---\n")
         : "(no indexed code yet)";
 
-      const message = await client.messages.create({
-        model: opts.claudeModel,
-        max_tokens: 400,
+      // 3. LLM call — NVIDIA model or Claude
+      const { text, promptTokens, completionTokens } = await callLLM({
+        model: opts.model,
+        nvidiaApiKey: opts.nvidiaApiKey,
+        claudeApiKey: opts.claudeApiKey,
+        maxTokens: 400,
         messages: [
           {
             role: "user",
@@ -79,39 +72,23 @@ ${context}`,
         ],
       });
 
-      const text = message.content[0].type === "text" ? message.content[0].text.trim() : "{}";
       try {
         result = JSON.parse(text) as EstimateResult;
       } catch {
         // keep default
       }
 
-      if (runRecord) {
-        await prisma.agentRun.update({
-          where: { id: runRecord.id },
-          data: {
-            status: "success",
-            promptTokens: message.usage.input_tokens,
-            completionTokens: message.usage.output_tokens,
-            finishedAt: new Date(),
-          },
-        });
-      }
+      await prisma.agentRun.update({
+        where: { id: runRecord.id },
+        data: { status: "success", promptTokens, completionTokens, finishedAt: new Date() },
+      });
     } catch (err) {
-      if (runRecord) {
-        await prisma.agentRun.update({
-          where: { id: runRecord.id },
-          data: { status: "failed", finishedAt: new Date() },
-        });
-      }
+      await prisma.agentRun.update({
+        where: { id: runRecord.id },
+        data: { status: "failed", finishedAt: new Date() },
+      });
       throw err;
     }
-
-    // Store estimate
-    const similarIds = await prisma.$queryRawUnsafe<{ id: string }[]>(
-      `SELECT id FROM "code_chunk" WHERE "project_id" = $1 AND "embedding" IS NOT NULL ORDER BY "embedding" <=> (SELECT "embedding" FROM "code_chunk" WHERE "project_id" = $1 LIMIT 1) LIMIT 5`,
-      opts.projectId,
-    ).catch(() => [] as { id: string }[]);
 
     await prisma.issueEstimate.upsert({
       where: { issueJobId: opts.issueJobId },
@@ -120,7 +97,7 @@ ${context}`,
         effortHours: result.effortHours,
         confidence: result.confidence,
         rationale: result.rationale,
-        similarChunks: similarIds.map((s) => s.id),
+        similarChunks: [],
       },
       update: {
         effortHours: result.effortHours,

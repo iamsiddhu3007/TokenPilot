@@ -39,9 +39,9 @@ export default async function ProjectSettingsPage({
         <ProviderForm
           projectId={id}
           model={cfg?.model}
-          hasKey={Boolean(cfg)}
-          nvidiaEmbedModel={cfg?.nvidiaEmbedModel ?? "nvidia/nv-embedqa-e5-v5"}
           hasNvidiaKey={Boolean(cfg?.encNvidiaApiKey)}
+          hasClaudeKey={Boolean(cfg?.encApiKey)}
+          nvidiaEmbedModel={cfg?.nvidiaEmbedModel ?? "nvidia/nv-embedqa-e5-v5"}
         />
         {cfg && <TestGatewayButton projectId={id} />}
       </section>

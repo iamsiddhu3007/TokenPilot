@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/db/client";
 import { requireSession } from "@/lib/session";
 import { decrypt } from "@/lib/crypto";
-import { testClaudeKey } from "@/lib/llm";
+import { testLLM } from "@/lib/llm";
 
 export async function POST(req: Request) {
   const { projectId } = await req.json();
@@ -16,8 +16,14 @@ export async function POST(req: Request) {
   const cfg = await prisma.providerConfig.findUnique({ where: { projectId } });
   if (!cfg) return NextResponse.json({ error: "no provider configured" }, { status: 400 });
 
+  if (!cfg.encNvidiaApiKey) return NextResponse.json({ error: "NVIDIA API key not set" }, { status: 400 });
+
   try {
-    const result = await testClaudeKey(decrypt(cfg.encApiKey), cfg.model);
+    const result = await testLLM({
+      model: cfg.model,
+      nvidiaApiKey: decrypt(cfg.encNvidiaApiKey),
+      claudeApiKey: cfg.encApiKey ? decrypt(cfg.encApiKey) : null,
+    });
     return NextResponse.json({ ok: true, result });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 502 });

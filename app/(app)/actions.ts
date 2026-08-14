@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/db/client";
 import { requireSession } from "@/lib/session";
 import { encrypt } from "@/lib/crypto";
-import { DEFAULT_CLAUDE_MODEL } from "@/lib/llm";
+import { DEFAULT_LLM_MODEL, DEFAULT_EMBED_MODEL } from "@/lib/llm";
 import { parseGithubUrl, getOctokit } from "@/lib/github";
 
 export type ActionState = { error?: string; ok?: boolean } | null;
@@ -68,21 +68,20 @@ export async function saveProviderConfig(
     return { error: "Only a manager can set the provider" };
   }
 
-  const provider = "anthropic";
-  const model = String(formData.get("model") ?? "").trim() || DEFAULT_CLAUDE_MODEL;
-  const apiKey = String(formData.get("apiKey") ?? "").trim();
+  const model = String(formData.get("model") ?? "").trim() || DEFAULT_LLM_MODEL;
   const nvidiaApiKey = String(formData.get("nvidiaApiKey") ?? "").trim();
-  const nvidiaEmbedModel = String(formData.get("nvidiaEmbedModel") ?? "nvidia/nv-embedqa-e5-v5").trim();
+  const nvidiaEmbedModel = String(formData.get("nvidiaEmbedModel") ?? "").trim() || DEFAULT_EMBED_MODEL;
+  const claudeApiKey = String(formData.get("claudeApiKey") ?? "").trim();
 
-  // Load existing config so we can keep keys that weren't re-entered
   const existing = await prisma.providerConfig.findUnique({ where: { projectId } });
 
-  if (!apiKey && !existing?.encApiKey) return { error: "Claude API key is required" };
+  if (!nvidiaApiKey && !existing?.encNvidiaApiKey) {
+    return { error: "NVIDIA API key is required" };
+  }
 
-  const encApiKey = apiKey ? encrypt(apiKey) : existing!.encApiKey;
-  const encNvidiaApiKey = nvidiaApiKey
-    ? encrypt(nvidiaApiKey)
-    : (existing?.encNvidiaApiKey ?? null);
+  const encNvidiaApiKey = nvidiaApiKey ? encrypt(nvidiaApiKey) : existing!.encNvidiaApiKey;
+  const encApiKey = claudeApiKey ? encrypt(claudeApiKey) : (existing?.encApiKey ?? null);
+  const provider = model.toLowerCase().startsWith("claude") ? "anthropic" : "nvidia";
 
   await prisma.providerConfig.upsert({
     where: { projectId },
