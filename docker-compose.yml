@@ -1,7 +1,4 @@
-# Local dev infrastructure for TokenPilot Phase 0.
-#   docker compose up -d
-# Postgres ships with the pgvector extension (needed in Phase 1 for embeddings).
-# LiteLLM is the BYOK gateway — teams' provider keys are passed per request.
+# docker compose up -d  →  starts Postgres + RabbitMQ
 services:
   db:
     image: pgvector/pgvector:pg16
@@ -20,18 +17,6 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
-
-  litellm:
-    image: ghcr.io/berriai/litellm:main-stable
-    container_name: tokenpilot-litellm
-    restart: unless-stopped
-    command: ["--config", "/app/config.yaml", "--port", "4000"]
-    environment:
-      LITELLM_MASTER_KEY: sk-tokenpilot-master
-    ports:
-      - "4000:4000"
-    volumes:
-      - ./litellm/config.yaml:/app/config.yaml:ro
 
   rabbitmq:
     image: rabbitmq:3.13-management-alpine

@@ -49,7 +49,6 @@ export default async function ProjectSettingsPage({
         </div>
         <ProviderForm
           projectId={id}
-          provider={cfg?.provider}
           model={cfg?.model}
           hasKey={Boolean(cfg)}
           nvidiaEmbedModel={cfg?.nvidiaEmbedModel ?? "nvidia/nv-embedqa-e5-v5"}

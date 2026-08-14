@@ -5,9 +5,16 @@ import { prisma } from "@/db/client";
 export async function POST(req: Request) {
   const payload = await req.text();
   const signature = req.headers.get("x-hub-signature-256");
+  const secret = process.env.GITHUB_WEBHOOK_SECRET;
 
-  if (!verifyWebhookSignature(payload, signature)) {
-    return NextResponse.json({ error: "invalid signature" }, { status: 401 });
+  // If a secret is configured, verify it. If not configured (local dev without
+  // a GitHub App), skip verification but log a warning.
+  if (secret) {
+    if (!verifyWebhookSignature(payload, signature)) {
+      return NextResponse.json({ error: "invalid signature" }, { status: 401 });
+    }
+  } else {
+    console.warn("[github webhook] GITHUB_WEBHOOK_SECRET not set — skipping signature check");
   }
 
   const event = req.headers.get("x-github-event") ?? "unknown";
@@ -25,10 +32,12 @@ export async function POST(req: Request) {
       const repoOwner = parsed.repository?.owner?.login;
       const repoName = parsed.repository?.name;
 
-      // Find project by GitHub connection
-      const gh = repoOwner && repoName
-        ? await prisma.githubConnection.findFirst({ where: { owner: repoOwner, name: repoName } })
-        : null;
+      const gh =
+        repoOwner && repoName
+          ? await prisma.githubConnection.findFirst({
+              where: { owner: repoOwner, name: repoName },
+            })
+          : null;
 
       if (gh) {
         const serverUrl = process.env.NEXT_PUBLIC_SERVER_URL ?? "http://localhost:3001";
@@ -43,9 +52,12 @@ export async function POST(req: Request) {
             issueNumber: parsed.issue.number,
             title: parsed.issue.title,
             body: parsed.issue.body,
-            installationId: parsed.installation?.id?.toString() ?? gh.installationId,
+            installationId:
+              parsed.installation?.id?.toString() ?? gh.installationId,
           }),
-        }).catch((e) => console.error("[webhook] failed to trigger pipeline:", e));
+        }).catch((e) => console.error("[webhook] pipeline trigger failed:", e));
+      } else {
+        console.log(`[github webhook] no connected project for ${repoOwner}/${repoName}`);
       }
     }
   }

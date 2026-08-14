@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/db/client";
 import { requireSession } from "@/lib/session";
 import { encrypt } from "@/lib/crypto";
-import { defaultModel, type ProviderId } from "@/lib/llm";
+import { DEFAULT_CLAUDE_MODEL } from "@/lib/llm";
 
 export type ActionState = { error?: string; ok?: boolean } | null;
 
@@ -67,11 +67,8 @@ export async function saveProviderConfig(
     return { error: "Only a manager can set the provider" };
   }
 
-  const provider = String(formData.get("provider") ?? "") as ProviderId;
-  if (!["anthropic", "openai", "google"].includes(provider)) {
-    return { error: "Pick a provider" };
-  }
-  const model = String(formData.get("model") ?? "").trim() || defaultModel(provider);
+  const provider = "anthropic";
+  const model = String(formData.get("model") ?? "").trim() || DEFAULT_CLAUDE_MODEL;
   const apiKey = String(formData.get("apiKey") ?? "").trim();
   if (!apiKey) return { error: "Claude API key is required" };
 

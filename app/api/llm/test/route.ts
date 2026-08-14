@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/db/client";
 import { requireSession } from "@/lib/session";
 import { decrypt } from "@/lib/crypto";
-import { chatCompletion } from "@/lib/llm";
+import { testClaudeKey } from "@/lib/llm";
 
 export async function POST(req: Request) {
   const { projectId } = await req.json();
@@ -17,12 +17,7 @@ export async function POST(req: Request) {
   if (!cfg) return NextResponse.json({ error: "no provider configured" }, { status: 400 });
 
   try {
-    const result = await chatCompletion({
-      model: cfg.model,
-      apiKey: decrypt(cfg.encApiKey),
-      messages: [{ role: "user", content: "Reply with one word: working" }],
-      maxTokens: 10,
-    });
+    const result = await testClaudeKey(decrypt(cfg.encApiKey), cfg.model);
     return NextResponse.json({ ok: true, result });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 502 });
