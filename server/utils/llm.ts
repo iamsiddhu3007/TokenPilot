@@ -2,15 +2,11 @@ import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 
 export const NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1";
-export const DEFAULT_LLM_MODEL = "meta/llama-3.3-70b-instruct";
+export const DEFAULT_LLM_MODEL = "meta/llama-3.1-8b-instruct";
 
 type Message = { role: "system" | "user" | "assistant"; content: string };
 type LLMResult = { text: string; promptTokens: number; completionTokens: number };
 
-/**
- * Routes to Anthropic SDK for claude-* models (requires claudeApiKey),
- * or to NVIDIA's OpenAI-compatible API for everything else.
- */
 export async function callLLM(opts: {
   model: string;
   nvidiaApiKey: string;
@@ -36,18 +32,29 @@ export async function callLLM(opts: {
     };
   }
 
-  // NVIDIA (or any OpenAI-compatible) path
-  const client = new OpenAI({ apiKey: opts.nvidiaApiKey, baseURL: NVIDIA_BASE_URL, timeout: 60_000 });
-  const completion = await client.chat.completions.create({
+  // NVIDIA path — use streaming to avoid hanging on overloaded free-tier servers
+  const client = new OpenAI({ apiKey: opts.nvidiaApiKey, baseURL: NVIDIA_BASE_URL, timeout: 90_000 });
+  const stream = await client.chat.completions.create({
     model: opts.model,
     messages: opts.messages,
     temperature: 0.2,
     top_p: 0.7,
     max_tokens: opts.maxTokens ?? 512,
+    stream: true,
   });
-  return {
-    text: completion.choices[0].message.content ?? "",
-    promptTokens: completion.usage?.prompt_tokens ?? 0,
-    completionTokens: completion.usage?.completion_tokens ?? 0,
-  };
+
+  let text = "";
+  let promptTokens = 0;
+  let completionTokens = 0;
+
+  for await (const chunk of stream) {
+    const delta = chunk.choices[0]?.delta?.content ?? "";
+    text += delta;
+    if (chunk.usage) {
+      promptTokens = chunk.usage.prompt_tokens ?? 0;
+      completionTokens = chunk.usage.completion_tokens ?? 0;
+    }
+  }
+
+  return { text, promptTokens, completionTokens };
 }

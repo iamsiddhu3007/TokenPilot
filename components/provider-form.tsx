@@ -7,10 +7,10 @@ const field =
   "mt-1 w-full rounded-md border border-black/10 bg-transparent px-3 py-2 text-sm outline-none focus:border-black/30 dark:border-white/15 dark:focus:border-white/40";
 
 const FREE_LLM_MODELS = [
-  "meta/llama-3.3-70b-instruct",
-  "nvidia/llama-3.1-nemotron-ultra-253b-v1",
+  "meta/llama-3.1-8b-instruct",
+  "meta/llama-3.1-70b-instruct",
   "mistralai/mistral-7b-instruct-v0.3",
-  "google/gemma-3-27b-it",
+  "meta/llama-3.3-70b-instruct",
 ];
 
 export function ProviderForm({
@@ -54,7 +54,7 @@ export function ProviderForm({
           LLM model
           <input
             name="model"
-            defaultValue={model ?? FREE_LLM_MODELS[0]}
+            defaultValue={model ?? "meta/llama-3.1-8b-instruct"}
             placeholder={FREE_LLM_MODELS[0]}
             className={field}
           />
