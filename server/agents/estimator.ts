@@ -40,7 +40,7 @@ const runEstimator = traceable(
       // 2. Find similar code chunks via pgvector
       const similar = await prisma.$queryRawUnsafe<{ id: string; content: string; file_path: string }[]>(
         `SELECT id, content, file_path FROM "code_chunk"
-         WHERE "project_id" = $1 AND "embedding" IS NOT NULL
+         WHERE "project_id" = $1::uuid AND "embedding" IS NOT NULL
          ORDER BY "embedding" <=> $2::vector
          LIMIT 5`,
         opts.projectId,

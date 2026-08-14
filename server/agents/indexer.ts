@@ -70,7 +70,7 @@ const runIndexer = traceable(
 
       // Update embedding via raw SQL (vector column not tracked by Prisma)
       await prisma.$executeRawUnsafe(
-        `UPDATE "code_chunk" SET "embedding" = $1::vector WHERE "id" = $2`,
+        `UPDATE "code_chunk" SET "embedding" = $1::vector WHERE "id" = $2::uuid`,
         JSON.stringify(vector),
         chunkId,
       );
