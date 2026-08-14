@@ -6,6 +6,7 @@ import { prisma } from "@/db/client";
 import { requireSession } from "@/lib/session";
 import { encrypt } from "@/lib/crypto";
 import { DEFAULT_CLAUDE_MODEL } from "@/lib/llm";
+import { parseGithubUrl, getOctokit } from "@/lib/github";
 
 export type ActionState = { error?: string; ok?: boolean } | null;
 
@@ -111,13 +112,41 @@ export async function connectRepo(
     return { error: "Only a manager can connect a repo" };
   }
 
-  const [owner, name, defaultBranch] = String(formData.get("repo") ?? "").split("|");
-  if (!owner || !name) return { error: "Pick a repository" };
+  const url = String(formData.get("githubUrl") ?? "").trim();
+  const parsed = parseGithubUrl(url);
+  if (!parsed) return { error: "Enter a valid GitHub URL (e.g. https://github.com/owner/repo)" };
 
-  await prisma.githubConnection.update({
-    where: { projectId },
-    data: { owner, name, defaultBranch: defaultBranch || "main" },
-  });
+  const pat = String(formData.get("githubPat") ?? "").trim();
+
+  // Verify the repo is accessible
+  try {
+    const octokit = getOctokit(pat || null);
+    const { data: repo } = await octokit.request("GET /repos/{owner}/{repo}", {
+      owner: parsed.owner,
+      repo: parsed.name,
+    });
+
+    const encGithubPat = pat ? encrypt(pat) : null;
+
+    await prisma.githubConnection.upsert({
+      where: { projectId },
+      create: {
+        projectId,
+        owner: parsed.owner,
+        name: parsed.name,
+        defaultBranch: repo.default_branch,
+        encGithubPat,
+      },
+      update: {
+        owner: parsed.owner,
+        name: parsed.name,
+        defaultBranch: repo.default_branch,
+        ...(encGithubPat && { encGithubPat }),
+      },
+    });
+  } catch {
+    return { error: "Could not access that repo. For private repos, provide a Personal Access Token." };
+  }
 
   revalidatePath(`/projects/${projectId}/settings`);
   return { ok: true };

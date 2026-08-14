@@ -3,10 +3,9 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/db/client";
 import { requireSession } from "@/lib/session";
 import { getProjectForUser } from "@/lib/queries";
-import { githubConfigured, listInstallationRepos, type RepoOption } from "@/lib/github";
 import { ProviderForm } from "@/components/provider-form";
 import { TestGatewayButton } from "@/components/test-gateway-button";
-import { RepoPicker } from "@/components/repo-picker";
+import { GithubUrlForm } from "@/components/github-url-form";
 
 export default async function ProjectSettingsPage({
   params,
@@ -20,16 +19,6 @@ export default async function ProjectSettingsPage({
 
   const cfg = await prisma.providerConfig.findUnique({ where: { projectId: id } });
   const gh = await prisma.githubConnection.findUnique({ where: { projectId: id } });
-
-  let repos: RepoOption[] = [];
-  let repoError: string | null = null;
-  if (gh?.installationId && !gh.owner && githubConfigured()) {
-    try {
-      repos = await listInstallationRepos(gh.installationId);
-    } catch (e) {
-      repoError = (e as Error).message;
-    }
-  }
 
   return (
     <div className="flex flex-col gap-10">
@@ -61,34 +50,27 @@ export default async function ProjectSettingsPage({
         <div>
           <h2 className="text-lg font-semibold">GitHub repository</h2>
           <p className="text-sm text-foreground/60">
-            Connect the repo TokenPilot watches for issues.
+            Paste any GitHub repo URL. Public repos work without a token. For private repos, provide a Personal Access Token with <code>repo</code> scope.
           </p>
         </div>
-
-        {gh?.owner ? (
+        {gh?.owner && (
           <div className="rounded-lg border border-black/10 px-4 py-3 text-sm dark:border-white/10">
             Connected to{" "}
-            <span className="font-medium">{gh.owner}/{gh.name}</span>{" "}
+            <a
+              href={`https://github.com/${gh.owner}/${gh.name}`}
+              target="_blank"
+              rel="noreferrer"
+              className="font-medium hover:underline"
+            >
+              {gh.owner}/{gh.name}
+            </a>{" "}
             <span className="text-foreground/50">({gh.defaultBranch})</span>
           </div>
-        ) : gh?.installationId ? (
-          repoError ? (
-            <p className="text-sm text-red-600">Couldn&apos;t list repos: {repoError}</p>
-          ) : (
-            <RepoPicker projectId={id} repos={repos} />
-          )
-        ) : githubConfigured() ? (
-          <a
-            href={`/api/github/install?projectId=${id}`}
-            className="self-start rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background"
-          >
-            Connect GitHub
-          </a>
-        ) : (
-          <p className="rounded-lg border border-dashed border-black/15 px-4 py-3 text-sm text-foreground/60 dark:border-white/20">
-            GitHub App not configured. See PLAN.md for setup.
-          </p>
         )}
+        <GithubUrlForm
+          projectId={id}
+          connected={gh?.owner ? { owner: gh.owner, name: gh.name!, defaultBranch: gh.defaultBranch! } : null}
+        />
       </section>
     </div>
   );

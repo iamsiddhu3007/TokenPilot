@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { prisma } from "@/db/client";
 import { requireSession } from "@/lib/session";
 import { getProjectForUser } from "@/lib/queries";
 import { AddMemberForm } from "@/components/add-member-form";
+import { SyncButton } from "@/components/sync-button";
 
 export default async function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -11,6 +13,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
   if (!data) notFound();
 
   const isManager = data.role === "manager";
+  const gh = await prisma.githubConnection.findUnique({ where: { projectId: id } });
 
   return (
     <div className="flex flex-col gap-8">
@@ -30,6 +33,8 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
           </Link>
         )}
       </div>
+
+      {gh?.owner && <SyncButton projectId={id} />}
 
       <nav className="flex gap-3 text-sm">
         <Link href={`/projects/${id}/board`} className="rounded-md border border-black/10 px-3 py-1.5 hover:bg-black/5 dark:border-white/15 dark:hover:bg-white/10">

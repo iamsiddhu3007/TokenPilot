@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { App } from "octokit";
+import { App, Octokit } from "octokit";
 
 export function githubConfigured(): boolean {
   return Boolean(process.env.GITHUB_APP_ID && process.env.GITHUB_APP_PRIVATE_KEY);
@@ -7,10 +7,21 @@ export function githubConfigured(): boolean {
 
 function getApp(): App {
   const appId = process.env.GITHUB_APP_ID;
-  // Private keys are pasted into .env with literal \n; restore real newlines.
   const privateKey = (process.env.GITHUB_APP_PRIVATE_KEY ?? "").replace(/\\n/g, "\n");
   if (!appId || !privateKey) throw new Error("GitHub App is not configured");
   return new App({ appId, privateKey });
+}
+
+/** Octokit instance from a PAT, or unauthenticated for public repos. */
+export function getOctokit(pat?: string | null): Octokit {
+  return new Octokit({ auth: pat ?? undefined });
+}
+
+/** Parse a GitHub URL into { owner, name }. Returns null if invalid. */
+export function parseGithubUrl(url: string): { owner: string; name: string } | null {
+  const match = url.trim().match(/github\.com\/([^/]+)\/([^/\s?#]+)/);
+  if (!match) return null;
+  return { owner: match[1], name: match[2].replace(/\.git$/, "") };
 }
 
 /** Where the manager is sent to install the App on their repo. */
@@ -26,7 +37,6 @@ export type RepoOption = {
   defaultBranch: string;
 };
 
-/** Repos the given installation can access. */
 export async function listInstallationRepos(installationId: string): Promise<RepoOption[]> {
   const octokit = await getApp().getInstallationOctokit(Number(installationId));
   const res = await octokit.request("GET /installation/repositories", { per_page: 100 });
@@ -38,7 +48,6 @@ export async function listInstallationRepos(installationId: string): Promise<Rep
   }));
 }
 
-/** Verify a GitHub webhook's X-Hub-Signature-256 (HMAC-SHA256) in constant time. */
 export function verifyWebhookSignature(payload: string, signature: string | null): boolean {
   const secret = process.env.GITHUB_WEBHOOK_SECRET ?? "";
   if (!secret || !signature) return false;

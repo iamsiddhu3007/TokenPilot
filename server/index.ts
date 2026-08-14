@@ -5,6 +5,7 @@ import { pipelineRouter } from "./routes/pipeline";
 import { issuesRouter } from "./routes/issues";
 import { tracesRouter } from "./routes/traces";
 import { costsRouter } from "./routes/costs";
+import { syncRouter } from "./routes/sync";
 
 const app = express();
 app.use(cors({ origin: process.env.NEXT_PUBLIC_URL ?? "http://localhost:3000" }));
@@ -12,6 +13,7 @@ app.use(express.json());
 
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
 app.use("/api/pipeline", pipelineRouter);
+app.use("/api/sync", syncRouter);
 app.use("/api/issues", issuesRouter);
 app.use("/api/traces", tracesRouter);
 app.use("/api/costs", costsRouter);
